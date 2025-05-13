@@ -1,0 +1,9 @@
+os
+streamlit
+sqlite3
+pandas
+matplotlib
+seaborn
+plotly.express
+re
+datetime
