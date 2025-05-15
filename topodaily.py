@@ -1,7 +1,6 @@
-# app.py
+# app.py (version PostgreSQL)
 import os
 import streamlit as st
-import sqlite3
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -11,6 +10,9 @@ import hashlib
 import re
 from datetime import datetime, timedelta
 import time
+import psycopg2
+from sqlalchemy import create_engine
+from urllib.parse import quote_plus
 
 # Configuration de la page
 st.set_page_config(
@@ -20,25 +22,60 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Création du dossier data s'il n'existe pas
-if not os.path.exists("data"):
-    os.makedirs("data")
+# Configuration de la base de données PostgreSQL
+# Ces valeurs devraient être définies comme variables d'environnement pour la sécurité
+DB_HOST = os.environ.get('DB_HOST', 'localhost')
+DB_PORT = os.environ.get('DB_PORT', '5432')
+DB_NAME = os.environ.get('DB_NAME', 'topodb')
+DB_USER = os.environ.get('DB_USER', 'postgres')
+DB_PASSWORD = os.environ.get('DB_PASSWORD', 'password')
+
+
+# Fonction pour se connecter à PostgreSQL
+def get_connection():
+    try:
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            database=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD
+        )
+        return conn
+    except Exception as e:
+        st.error(f"Erreur de connexion à la base de données: {str(e)}")
+        return None
+
+
+# Fonction pour obtenir un moteur SQLAlchemy pour pandas
+def get_engine():
+    try:
+        # Encoder le mot de passe pour gérer les caractères spéciaux
+        password = quote_plus(DB_PASSWORD)
+        engine = create_engine(f'postgresql://{DB_USER}:{password}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
+        return engine
+    except Exception as e:
+        st.error(f"Erreur lors de la création du moteur SQLAlchemy: {str(e)}")
+        return None
 
 
 # Fonction pour initialiser la base de données
 def init_db():
-    conn = sqlite3.connect('data/topodb.db')
+    conn = get_connection()
+    if not conn:
+        return
+
     c = conn.cursor()
 
     # Création de la table utilisateurs si elle n'existe pas
     c.execute('''
     CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        email TEXT UNIQUE,
-        phone TEXT,
-        role TEXT NOT NULL,
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(100) UNIQUE NOT NULL,
+        password VARCHAR(100) NOT NULL,
+        email VARCHAR(100) UNIQUE,
+        phone VARCHAR(20),
+        role VARCHAR(20) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
@@ -46,12 +83,12 @@ def init_db():
     # Création de la table des levés topographiques
     c.execute('''
     CREATE TABLE IF NOT EXISTS leves (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT NOT NULL,
-        village TEXT NOT NULL,
-        type TEXT NOT NULL,
+        id SERIAL PRIMARY KEY,
+        date DATE NOT NULL,
+        village VARCHAR(100) NOT NULL,
+        type VARCHAR(50) NOT NULL,
         quantite INTEGER NOT NULL,
-        topographe TEXT NOT NULL,
+        topographe VARCHAR(100) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
@@ -61,7 +98,7 @@ def init_db():
     if not c.fetchone():
         # Création de l'utilisateur admin par défaut
         admin_password = hashlib.sha256("admin".encode()).hexdigest()
-        c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+        c.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
                   ("admin", admin_password, "administrateur"))
 
     conn.commit()
@@ -75,11 +112,14 @@ def hash_password(password):
 
 # Fonction pour vérifier si un utilisateur existe et si le mot de passe est correct
 def verify_user(username, password):
-    conn = sqlite3.connect('data/topodb.db')
+    conn = get_connection()
+    if not conn:
+        return None
+
     c = conn.cursor()
 
     hashed_password = hash_password(password)
-    c.execute("SELECT * FROM users WHERE username=? AND password=?", (username, hashed_password))
+    c.execute("SELECT * FROM users WHERE username=%s AND password=%s", (username, hashed_password))
     user = c.fetchone()
 
     conn.close()
@@ -91,10 +131,13 @@ def verify_user(username, password):
 
 # Fonction pour obtenir le rôle d'un utilisateur
 def get_user_role(username):
-    conn = sqlite3.connect('data/topodb.db')
+    conn = get_connection()
+    if not conn:
+        return None
+
     c = conn.cursor()
 
-    c.execute("SELECT role FROM users WHERE username=?", (username,))
+    c.execute("SELECT role FROM users WHERE username=%s", (username,))
     role = c.fetchone()
 
     conn.close()
@@ -106,19 +149,27 @@ def get_user_role(username):
 
 # Fonction pour ajouter un nouvel utilisateur
 def add_user(username, password, email, phone, role="topographe"):
-    conn = sqlite3.connect('data/topodb.db')
+    conn = get_connection()
+    if not conn:
+        return False, "Erreur de connexion à la base de données"
+
     c = conn.cursor()
 
     try:
         hashed_password = hash_password(password)
-        c.execute("INSERT INTO users (username, password, email, phone, role) VALUES (?, ?, ?, ?, ?)",
+        c.execute("INSERT INTO users (username, password, email, phone, role) VALUES (%s, %s, %s, %s, %s)",
                   (username, hashed_password, email, phone, role))
         conn.commit()
         success = True
         message = "Compte créé avec succès!"
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
+        conn.rollback()
         success = False
         message = "Erreur: Nom d'utilisateur ou email déjà utilisé."
+    except Exception as e:
+        conn.rollback()
+        success = False
+        message = f"Erreur: {str(e)}"
 
     conn.close()
     return success, message
@@ -126,12 +177,15 @@ def add_user(username, password, email, phone, role="topographe"):
 
 # Fonction pour supprimer un utilisateur
 def delete_user(user_id):
-    conn = sqlite3.connect('data/topodb.db')
+    conn = get_connection()
+    if not conn:
+        return False, "Erreur de connexion à la base de données"
+
     c = conn.cursor()
 
     try:
         # Vérifier si l'utilisateur existe
-        c.execute("SELECT username FROM users WHERE id=?", (user_id,))
+        c.execute("SELECT username FROM users WHERE id=%s", (user_id,))
         user_data = c.fetchone()
 
         if not user_data:
@@ -146,11 +200,12 @@ def delete_user(user_id):
             return False, "Impossible de supprimer l'administrateur principal."
 
         # Supprimer l'utilisateur
-        c.execute("DELETE FROM users WHERE id=?", (user_id,))
+        c.execute("DELETE FROM users WHERE id=%s", (user_id,))
         conn.commit()
         success = True
         message = f"Utilisateur {username} supprimé avec succès!"
     except Exception as e:
+        conn.rollback()
         success = False
         message = f"Erreur lors de la suppression de l'utilisateur: {str(e)}"
 
@@ -160,129 +215,183 @@ def delete_user(user_id):
 
 # Fonction pour modifier le mot de passe d'un utilisateur
 def change_password(username, new_password):
-    conn = sqlite3.connect('data/topodb.db')
+    conn = get_connection()
+    if not conn:
+        return False
+
     c = conn.cursor()
 
-    hashed_password = hash_password(new_password)
-    c.execute("UPDATE users SET password=? WHERE username=?", (hashed_password, username))
-    conn.commit()
+    try:
+        hashed_password = hash_password(new_password)
+        c.execute("UPDATE users SET password=%s WHERE username=%s", (hashed_password, username))
+        conn.commit()
+        success = True
+    except Exception as e:
+        conn.rollback()
+        success = False
 
     conn.close()
-    return True
+    return success
 
 
 # Fonction pour obtenir la liste des utilisateurs
 def get_users():
-    conn = sqlite3.connect('data/topodb.db')
+    engine = get_engine()
+    if not engine:
+        return pd.DataFrame()
+
     query = "SELECT id, username, email, phone, role, created_at FROM users"
-    users = pd.read_sql_query(query, conn)
-    conn.close()
-    return users
+    try:
+        users = pd.read_sql_query(query, engine)
+        return users
+    except Exception as e:
+        st.error(f"Erreur lors de la récupération des utilisateurs: {str(e)}")
+        return pd.DataFrame()
 
 
 # Fonction pour ajouter un levé topographique
 def add_leve(date, village, type_leve, quantite, topographe):
-    conn = sqlite3.connect('data/topodb.db')
+    conn = get_connection()
+    if not conn:
+        return False
+
     c = conn.cursor()
 
-    # Assurez-vous que quantite est un entier
-    quantite = int(quantite)
+    try:
+        # Assurez-vous que quantite est un entier
+        quantite = int(quantite)
 
-    c.execute('''
-    INSERT INTO leves (date, village, type, quantite, topographe)
-    VALUES (?, ?, ?, ?, ?)
-    ''', (date, village, type_leve, quantite, topographe))
+        c.execute('''
+        INSERT INTO leves (date, village, type, quantite, topographe)
+        VALUES (%s, %s, %s, %s, %s)
+        ''', (date, village, type_leve, quantite, topographe))
 
-    conn.commit()
+        conn.commit()
+        success = True
+    except Exception as e:
+        conn.rollback()
+        st.error(f"Erreur lors de l'ajout du levé: {str(e)}")
+        success = False
+
     conn.close()
-    return True
+    return success
 
 
 # Fonction pour obtenir tous les levés
 def get_all_leves():
-    conn = sqlite3.connect('data/topodb.db')
+    engine = get_engine()
+    if not engine:
+        return pd.DataFrame()
+
     query = "SELECT * FROM leves ORDER BY date DESC"
-    leves = pd.read_sql_query(query, conn)
-    conn.close()
-    return leves
+    try:
+        leves = pd.read_sql_query(query, engine)
+        return leves
+    except Exception as e:
+        st.error(f"Erreur lors de la récupération des levés: {str(e)}")
+        return pd.DataFrame()
 
 
 # Fonction pour obtenir les levés filtrés
 def get_filtered_leves(start_date=None, end_date=None, village=None, type_leve=None, topographe=None):
-    conn = sqlite3.connect('data/topodb.db')
+    engine = get_engine()
+    if not engine:
+        return pd.DataFrame()
 
     # Construire la requête SQL avec les filtres
     query = "SELECT * FROM leves WHERE 1=1"
-    params = []
+    params = {}
 
     if start_date:
-        query += " AND date >= ?"
-        params.append(start_date)
+        query += " AND date >= %(start_date)s"
+        params['start_date'] = start_date
 
     if end_date:
-        query += " AND date <= ?"
-        params.append(end_date)
+        query += " AND date <= %(end_date)s"
+        params['end_date'] = end_date
 
     if village:
-        query += " AND village = ?"
-        params.append(village)
+        query += " AND village = %(village)s"
+        params['village'] = village
 
     if type_leve:
-        query += " AND type = ?"
-        params.append(type_leve)
+        query += " AND type = %(type_leve)s"
+        params['type_leve'] = type_leve
 
     if topographe:
-        query += " AND topographe = ?"
-        params.append(topographe)
+        query += " AND topographe = %(topographe)s"
+        params['topographe'] = topographe
 
     query += " ORDER BY date DESC"
 
-    leves = pd.read_sql_query(query, conn, params=params)
-    conn.close()
-    return leves
+    try:
+        leves = pd.read_sql_query(query, engine, params=params)
+        return leves
+    except Exception as e:
+        st.error(f"Erreur lors de la récupération des levés filtrés: {str(e)}")
+        return pd.DataFrame()
 
 
 # Fonction pour obtenir les levés d'un topographe spécifique
 def get_leves_by_topographe(topographe):
-    conn = sqlite3.connect('data/topodb.db')
-    query = f"SELECT * FROM leves WHERE topographe=? ORDER BY date DESC"
-    leves = pd.read_sql_query(query, conn, params=(topographe,))
-    conn.close()
-    return leves
+    engine = get_engine()
+    if not engine:
+        return pd.DataFrame()
+
+    query = "SELECT * FROM leves WHERE topographe=%s ORDER BY date DESC"
+    try:
+        leves = pd.read_sql_query(query, engine, params=(topographe,))
+        return leves
+    except Exception as e:
+        st.error(f"Erreur lors de la récupération des levés: {str(e)}")
+        return pd.DataFrame()
 
 
 # Fonction pour obtenir les données uniques pour les filtres
 def get_filter_options():
-    conn = sqlite3.connect('data/topodb.db')
+    engine = get_engine()
+    if not engine:
+        return {"villages": [], "types": [], "topographes": []}
 
-    # Obtenir les villages uniques
-    villages = pd.read_sql_query("SELECT DISTINCT village FROM leves ORDER BY village", conn)
+    try:
+        # Obtenir les villages uniques
+        villages = pd.read_sql_query("SELECT DISTINCT village FROM leves ORDER BY village", engine)
 
-    # Obtenir les types de levés uniques
-    types = pd.read_sql_query("SELECT DISTINCT type FROM leves ORDER BY type", conn)
+        # Obtenir les types de levés uniques
+        types = pd.read_sql_query("SELECT DISTINCT type FROM leves ORDER BY type", engine)
 
-    # Obtenir les topographes uniques
-    topographes = pd.read_sql_query("SELECT DISTINCT topographe FROM leves ORDER BY topographe", conn)
+        # Obtenir les topographes uniques
+        topographes = pd.read_sql_query("SELECT DISTINCT topographe FROM leves ORDER BY topographe", engine)
 
-    conn.close()
-
-    return {
-        "villages": villages["village"].tolist() if not villages.empty else [],
-        "types": types["type"].tolist() if not types.empty else [],
-        "topographes": topographes["topographe"].tolist() if not topographes.empty else []
-    }
+        return {
+            "villages": villages["village"].tolist() if not villages.empty else [],
+            "types": types["type"].tolist() if not types.empty else [],
+            "topographes": topographes["topographe"].tolist() if not topographes.empty else []
+        }
+    except Exception as e:
+        st.error(f"Erreur lors de la récupération des options de filtre: {str(e)}")
+        return {"villages": [], "types": [], "topographes": []}
 
 
 # Fonction pour supprimer un levé
 def delete_leve(leve_id):
-    conn = sqlite3.connect('data/topodb.db')
+    conn = get_connection()
+    if not conn:
+        return False
+
     c = conn.cursor()
 
-    c.execute("DELETE FROM leves WHERE id=?", (leve_id,))
+    try:
+        c.execute("DELETE FROM leves WHERE id=%s", (leve_id,))
+        conn.commit()
+        success = True
+    except Exception as e:
+        conn.rollback()
+        st.error(f"Erreur lors de la suppression du levé: {str(e)}")
+        success = False
 
-    conn.commit()
     conn.close()
-    return True
+    return success
 
 
 # Fonction pour valider le format de l'email
@@ -690,7 +799,7 @@ def show_suivi_page():
         st.warning("Vous devez être connecté pour accéder au suivi.")
 
         # Afficher le formulaire de connexion directement sur cette page
-        with st.form("login_form_embed"):
+        with st.form("login_form_embed_suivi"):
             st.subheader("Connexion")
             username = st.text_input("Nom d'utilisateur")
             password = st.text_input("Mot de passe", type="password")
@@ -711,247 +820,187 @@ def show_suivi_page():
         st.markdown("Pas encore de compte? Cliquez sur 'S'inscrire' dans le menu latéral.")
         return
 
-    user_role = st.session_state.user["role"]
-    username = st.session_state.username
+    # Récupération des options de filtre
+    filter_options = get_filter_options()
 
-    # Filtres pour le suivi
-    st.subheader("Filtres")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        # Filtre par date
-        date_filter = st.selectbox(
-            "Période",
-            ["Tous", "Dernier mois", "Dernière semaine", "Dernier trimestre", "Dernière année", "Personnaliser"],
-            index=0
-        )
-
-        start_date = None
-        end_date = None
-
-        if date_filter == "Dernier mois":
-            start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-            end_date = datetime.now().strftime("%Y-%m-%d")
-        elif date_filter == "Dernière semaine":
-            start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-            end_date = datetime.now().strftime("%Y-%m-%d")
-        elif date_filter == "Dernier trimestre":
-            start_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
-            end_date = datetime.now().strftime("%Y-%m-%d")
-        elif date_filter == "Dernière année":
-            start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
-            end_date = datetime.now().strftime("%Y-%m-%d")
-        elif date_filter == "Personnaliser":
-            col1_1, col1_2 = st.columns(2)
-            with col1_1:
-                start_date = st.date_input("Du", datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-            with col1_2:
-                end_date = st.date_input("Au", datetime.now()).strftime("%Y-%m-%d")
-
-    with col2:
-        # Filtre par type de levé
-        filter_options = get_filter_options()
-        type_options = ["Tous"] + filter_options["types"]
-        type_filter = st.selectbox("Type de levé", options=type_options, index=0)
-
-        if type_filter == "Tous":
-            type_filter = None
-
-    with col3:
-        # Filtre par village
-        village_options = ["Tous"] + filter_options["villages"]
-        village_filter = st.selectbox("Village", options=village_options, index=0)
-
-        if village_filter == "Tous":
-            village_filter = None
-
-    # Filtre par topographe pour les administrateurs/superviseurs
-    topo_filter = None
-    if user_role in ["administrateur", "superviseur"]:
-        topo_options = ["Tous"] + filter_options["topographes"]
-        topo_filter = st.selectbox("Topographe", options=topo_options, index=0)
-
-        if topo_filter == "Tous":
-            topo_filter = None
-    else:
-        # Pour les topographes, on filtre automatiquement sur leur nom
-        topo_filter = username
-
-    # Récupération des levés selon les filtres
-    leves_df = get_filtered_leves(start_date, end_date, village_filter, type_filter, topo_filter)
-
-    if not leves_df.empty:
-        # Conversion
-        # Affichage des résultats filtrés
-        st.subheader("Résultats")
-
-        # Métriques de synthèse
-        total_leves = len(leves_df)
-        total_quantite = leves_df['quantite'].sum() if total_leves > 0 else 0
-
+    # Colonne pour les filtres
+    with st.expander("Filtres", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("Nombre de levés", total_leves)
-        with col2:
-            st.metric("Quantité totale", f"{total_quantite:,.0f}")
+            start_date = st.date_input("Date de début", datetime.now() - timedelta(days=30))
+            end_date = st.date_input("Date de fin", datetime.now())
 
-        # Affichage du tableau de données
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            village_options = ["Tous"] + filter_options["villages"]
+            village = st.selectbox("Village", options=village_options)
+            village = None if village == "Tous" else village
+
+        with col2:
+            type_options = ["Tous"] + filter_options["types"]
+            type_leve = st.selectbox("Type de levé", options=type_options)
+            type_leve = None if type_leve == "Tous" else type_leve
+
+        with col3:
+            # Pour les administrateurs, afficher tous les topographes
+            # Pour les autres, voir uniquement ses propres levés
+            if st.session_state.user["role"] == "administrateur":
+                topo_options = ["Tous"] + filter_options["topographes"]
+                topographe = st.selectbox("Topographe", options=topo_options)
+                topographe = None if topographe == "Tous" else topographe
+            else:
+                topographe = st.session_state.username
+                st.write(f"Topographe: **{topographe}**")
+
+    # Récupération des levés filtrés
+    leves_df = get_filtered_leves(start_date, end_date, village, type_leve, topographe)
+
+    # Affichage des données
+    if not leves_df.empty:
+        # Renommage des colonnes pour un affichage plus convivial
+        leves_df = leves_df.rename(columns={
+            'id': 'ID',
+            'date': 'Date',
+            'village': 'Village',
+            'type': 'Type',
+            'quantite': 'Quantité',
+            'topographe': 'Topographe',
+            'created_at': 'Date de création'
+        })
+
+        # Formatage des dates
+        leves_df['Date'] = pd.to_datetime(leves_df['Date']).dt.strftime('%d/%m/%Y')
+
+        # Affichage des données avec une mise en forme améliorée
         st.dataframe(
-            leves_df.rename(columns={
-                'id': 'ID',
-                'date': 'Date',
-                'village': 'Village',
-                'type': 'Type',
-                'quantite': 'Quantité',
-                'topographe': 'Topographe',
-                'created_at': 'Créé le'
-            }),
+            leves_df[['ID', 'Date', 'Village', 'Type', 'Quantité', 'Topographe']],
             use_container_width=True,
-            hide_index=True
+            height=400
         )
 
-        # Options pour exporter les données
-        if st.button("Exporter les données (CSV)"):
-            csv = leves_df.to_csv(index=False)
-            st.download_button(
-                label="Télécharger CSV",
-                data=csv,
-                file_name=f"leves_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
+        # Statistiques sur les données filtrées
+        st.subheader("Statistiques")
 
-        # Option pour supprimer un levé (uniquement pour les administrateurs)
-        if user_role == "administrateur":
-            st.markdown("---")
-            st.subheader("Gestion des données")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Nombre Total de Levés", len(leves_df))
+        with col2:
+            st.metric("Quantité Totale", f"{leves_df['Quantité'].sum():,.0f}")
+        with col3:
+            st.metric("Moyenne par Levé", f"{leves_df['Quantité'].mean():.2f}")
 
-            with st.expander("Supprimer un levé", expanded=False):
+        # Option d'export
+        if st.download_button(
+                label="Télécharger les données en CSV",
+                data=leves_df.to_csv(index=False).encode('utf-8'),
+                file_name=f"leves_export_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime='text/csv'
+        ):
+            st.success("Export réussi!")
+
+        # Pour les administrateurs, possibilité de supprimer des levés
+        if st.session_state.user["role"] == "administrateur":
+            st.subheader("Gestion des Levés")
+
+            with st.form("delete_leve_form"):
                 leve_id = st.number_input("ID du levé à supprimer", min_value=1, step=1)
+                delete_submit = st.form_submit_button("Supprimer le levé")
 
-                if st.button("Supprimer"):
+                if delete_submit:
                     if delete_leve(leve_id):
-                        st.success(f"Levé ID {leve_id} supprimé avec succès!")
+                        st.success(f"Levé {leve_id} supprimé avec succès!")
                         time.sleep(1)
                         st.rerun()
                     else:
-                        st.error("Erreur lors de la suppression du levé.")
+                        st.error("Erreur lors de la suppression du levé. Vérifiez l'ID.")
     else:
-        st.info("Aucun levé ne correspond aux filtres sélectionnés.")
+        st.info("Aucun levé ne correspond aux critères de recherche sélectionnés.")
 
 
-# Fonction pour afficher la page Mon Compte
+# Fonction pour afficher la page de mon compte
 def show_account_page():
     st.title("Mon Compte")
 
     # Vérification que l'utilisateur est connecté
     if not st.session_state.get("authenticated", False):
-        st.warning("Vous devez être connecté pour accéder à cette page.")
+        st.warning("Vous devez être connecté pour accéder à votre compte.")
         return
 
     username = st.session_state.username
+    role = st.session_state.user["role"]
 
-    # Afficher les informations du compte
-    st.subheader("Informations personnelles")
+    st.write(f"**Nom d'utilisateur:** {username}")
+    st.write(f"**Rôle:** {role}")
 
-    conn = sqlite3.connect('data/topodb.db')
-    c = conn.cursor()
-
-    c.execute("SELECT username, email, phone, role, created_at FROM users WHERE username=?", (username,))
-    user_data = c.fetchone()
-
-    conn.close()
-
-    if user_data:
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.write(f"**Nom d'utilisateur:** {user_data[0]}")
-            st.write(f"**Email:** {user_data[1] if user_data[1] else 'Non renseigné'}")
-
-        with col2:
-            st.write(f"**Téléphone:** {user_data[2] if user_data[2] else 'Non renseigné'}")
-            st.write(f"**Rôle:** {user_data[3]}")
-            st.write(f"**Compte créé le:** {user_data[4]}")
-
-    # Changer le mot de passe
-    st.markdown("---")
-    st.subheader("Changer le mot de passe")
-
+    # Formulaire de changement de mot de passe
+    st.subheader("Changer de mot de passe")
     with st.form("change_password_form"):
-        current_password = st.text_input("Mot de passe actuel", type="password")
+        old_password = st.text_input("Ancien mot de passe", type="password")
         new_password = st.text_input("Nouveau mot de passe", type="password")
         confirm_password = st.text_input("Confirmer le nouveau mot de passe", type="password")
-
         submit = st.form_submit_button("Changer le mot de passe")
 
         if submit:
-            if not current_password or not new_password or not confirm_password:
+            if not old_password or not new_password or not confirm_password:
                 st.error("Tous les champs sont obligatoires.")
             elif new_password != confirm_password:
                 st.error("Les nouveaux mots de passe ne correspondent pas.")
-            elif not verify_user(username, current_password):
-                st.error("Mot de passe actuel incorrect.")
             else:
-                if change_password(username, new_password):
-                    st.success("Mot de passe changé avec succès!")
+                # Vérifier que l'ancien mot de passe est correct
+                user = verify_user(username, old_password)
+                if not user:
+                    st.error("Ancien mot de passe incorrect.")
                 else:
-                    st.error("Erreur lors du changement de mot de passe.")
+                    # Mettre à jour le mot de passe
+                    if change_password(username, new_password):
+                        st.success("Mot de passe changé avec succès!")
+                    else:
+                        st.error("Erreur lors du changement de mot de passe.")
 
-    # Afficher les statistiques personnelles pour l'utilisateur
-    st.markdown("---")
-    st.subheader("Mes statistiques")
+    # Statistiques personnelles pour le topographe
+    st.subheader("Mes Statistiques")
 
     # Récupérer les levés de l'utilisateur
-    user_leves = get_leves_by_topographe(username)
+    leves_df = get_leves_by_topographe(username)
 
-    if not user_leves.empty:
-        # Conversion de la colonne date en datetime pour les graphiques
-        user_leves['date'] = pd.to_datetime(user_leves['date'])
+    if not leves_df.empty:
+        # Convertir la colonne date en datetime pour les analyses
+        leves_df['date'] = pd.to_datetime(leves_df['date'])
 
-        # Métriques de synthèse
-        total_leves = len(user_leves)
-        total_quantite = user_leves['quantite'].sum()
-
+        # Métriques principales
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Total de levés", total_leves)
+            st.metric("Nombre Total de Levés", len(leves_df))
         with col2:
-            st.metric("Quantité totale", f"{total_quantite:,.0f}")
+            st.metric("Quantité Totale", f"{leves_df['quantite'].sum():,.0f}")
         with col3:
-            # Calculer la moyenne par jour des 30 derniers jours
-            recent_leves = user_leves[user_leves['date'] >= datetime.now() - timedelta(days=30)]
-            if not recent_leves.empty:
-                avg_per_day = len(recent_leves) / 30
-                st.metric("Moyenne sur 30 jours", f"{avg_per_day:.2f} levés/jour")
-            else:
-                st.metric("Moyenne sur 30 jours", "0 levés/jour")
+            st.metric("Moyenne par Levé", f"{leves_df['quantite'].mean():.2f}")
 
-        # Graphique d'évolution temporelle
-        st.subheader("Évolution de mon activité")
-        time_series = user_leves.groupby(pd.Grouper(key='date', freq='W')).size().reset_index()
+        # Graphique d'évolution des levés dans le temps
+        st.subheader("Évolution de mes levés")
+        time_series = leves_df.groupby(pd.Grouper(key='date', freq='D')).size().reset_index()
         time_series.columns = ['Date', 'Nombre']
 
         fig = px.line(
             time_series,
             x='Date',
             y='Nombre',
-            title='Levés par semaine',
+            title='Évolution quotidienne de mes levés',
             markers=True
         )
         fig.update_layout(xaxis_title='Date', yaxis_title='Nombre de levés')
         st.plotly_chart(fig, use_container_width=True)
 
         # Répartition par type de levé
-        st.subheader("Mes types de levés")
-        type_counts = user_leves['type'].value_counts().reset_index()
+        st.subheader("Répartition par type de levé")
+        type_counts = leves_df['type'].value_counts().reset_index()
         type_counts.columns = ['Type', 'Nombre']
 
         fig = px.pie(
             type_counts,
             values='Nombre',
             names='Type',
-            title='Répartition par type de levé',
+            title='Répartition des types de levés',
             hole=0.3
         )
         fig.update_traces(textposition='inside', textinfo='percent+label')
@@ -962,55 +1011,65 @@ def show_account_page():
 
 # Fonction pour afficher la page d'administration des utilisateurs
 def show_admin_users_page():
-    st.title("Gestion des Utilisateurs")
+    st.title("Administration - Gestion des Utilisateurs")
 
-    # Vérifier que l'utilisateur est administrateur
+    # Vérification que l'utilisateur est connecté et est admin
     if not st.session_state.get("authenticated", False) or st.session_state.user["role"] != "administrateur":
-        st.warning("Vous n'avez pas les droits pour accéder à cette page.")
+        st.error("Accès non autorisé. Cette page est réservée aux administrateurs.")
         return
 
-    # Récupérer la liste des utilisateurs
+    # Récupération de la liste des utilisateurs
     users_df = get_users()
 
-    # Affichage des utilisateurs
-    st.subheader("Liste des utilisateurs")
-    st.dataframe(
-        users_df.rename(columns={
+    if not users_df.empty:
+        # Renommage des colonnes pour un affichage plus convivial
+        users_df = users_df.rename(columns={
             'id': 'ID',
             'username': 'Nom d\'utilisateur',
             'email': 'Email',
             'phone': 'Téléphone',
             'role': 'Rôle',
-            'created_at': 'Créé le'
-        }),
-        use_container_width=True,
-        hide_index=True
-    )
+            'created_at': 'Date de création'
+        })
 
-    # Ajouter un nouvel utilisateur
-    st.markdown("---")
-    st.subheader("Ajouter un utilisateur")
+        # Formatage des dates
+        if 'Date de création' in users_df.columns:
+            users_df['Date de création'] = pd.to_datetime(users_df['Date de création']).dt.strftime('%d/%m/%Y %H:%M')
 
+        # Affichage des utilisateurs
+        st.dataframe(users_df, use_container_width=True)
+
+        # Formulaire pour la suppression d'un utilisateur
+        st.subheader("Supprimer un utilisateur")
+        with st.form("delete_user_form"):
+            user_id = st.number_input("ID de l'utilisateur à supprimer", min_value=1, step=1)
+            delete_submit = st.form_submit_button("Supprimer l'utilisateur")
+
+            if delete_submit:
+                success, message = delete_user(user_id)
+                if success:
+                    st.success(message)
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(message)
+    else:
+        st.info("Aucun utilisateur n'a été trouvé.")
+
+    # Formulaire pour l'ajout d'un nouvel utilisateur
+    st.subheader("Ajouter un nouvel utilisateur")
     with st.form("add_user_form"):
-        col1, col2 = st.columns(2)
-
-        with col1:
-            username = st.text_input("Nom d'utilisateur")
-            password = st.text_input("Mot de passe", type="password")
-            confirm_password = st.text_input("Confirmer le mot de passe", type="password")
-
-        with col2:
-            email = st.text_input("Email (optionnel)")
-            phone = st.text_input("Téléphone (optionnel)")
-            role = st.selectbox("Rôle", options=["topographe", "superviseur", "administrateur"])
+        username = st.text_input("Nom d'utilisateur")
+        password = st.text_input("Mot de passe", type="password")
+        email = st.text_input("Email (optionnel)")
+        phone = st.text_input("Téléphone (optionnel)")
+        role = st.selectbox("Rôle", options=["topographe", "administrateur"])
 
         submit = st.form_submit_button("Ajouter l'utilisateur")
 
         if submit:
             if not username or not password:
                 st.error("Le nom d'utilisateur et le mot de passe sont obligatoires.")
-            elif password != confirm_password:
-                st.error("Les mots de passe ne correspondent pas.")
             elif email and not validate_email(email):
                 st.error("Format d'email invalide.")
             elif phone and not validate_phone(phone):
@@ -1024,226 +1083,106 @@ def show_admin_users_page():
                 else:
                     st.error(message)
 
-    # Supprimer un utilisateur
-    st.markdown("---")
-    st.subheader("Supprimer un utilisateur")
-
-    user_id = st.number_input("ID de l'utilisateur à supprimer", min_value=1, step=1)
-
-    if st.button("Supprimer l'utilisateur"):
-        if user_id == st.session_state.user["id"]:
-            st.error("Vous ne pouvez pas supprimer votre propre compte.")
-        else:
-            success, message = delete_user(user_id)
-            if success:
-                st.success(message)
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error(message)
-
 
 # Fonction pour afficher la page d'administration des données
 def show_admin_data_page():
-    st.title("Gestion des Données")
+    st.title("Administration - Gestion des Données")
 
-    # Vérifier que l'utilisateur est administrateur
+    # Vérification que l'utilisateur est connecté et est admin
     if not st.session_state.get("authenticated", False) or st.session_state.user["role"] != "administrateur":
-        st.warning("Vous n'avez pas les droits pour accéder à cette page.")
+        st.error("Accès non autorisé. Cette page est réservée aux administrateurs.")
         return
 
-    # Options pour la gestion des données
-    option = st.selectbox(
-        "Sélectionnez une action:",
-        ["Visualisation des données", "Suppression de données", "Exportation/Importation"]
-    )
+    # Fonctionnalité de sauvegarde et restauration (à implanter avec PostgreSQL)
+    st.subheader("Maintenance de la Base de Données")
 
-    if option == "Visualisation des données":
-        st.subheader("Visualisation des données")
+    col1, col2 = st.columns(2)
 
-        # Récupérer toutes les données
-        leves_df = get_all_leves()
+    with col1:
+        st.info("Pour PostgreSQL, la sauvegarde se fait via pg_dump. Consultez la documentation PostgreSQL.")
 
-        if not leves_df.empty:
-            # Affichage complet des données
-            st.dataframe(leves_df, use_container_width=True)
+    with col2:
+        st.info("La restauration de PostgreSQL se fait via pg_restore ou psql. Consultez la documentation PostgreSQL.")
 
-            # Graphiques avancés
-            st.subheader("Analyse approfondie")
+    # Afficher les statistiques globales
+    st.subheader("Statistiques Globales")
 
-            # Convertir la date en datetime
-            leves_df['date'] = pd.to_datetime(leves_df['date'])
+    # Récupération des données
+    leves_df = get_all_leves()
+    users_df = get_users()
 
-            # Corrélation entre le type de levé et la quantité
-            type_quant = leves_df.groupby('type')['quantite'].agg(['mean', 'sum', 'count']).reset_index()
-            type_quant.columns = ['Type', 'Moyenne', 'Somme', 'Nombre']
+    if not leves_df.empty and not users_df.empty:
+        col1, col2, col3, col4 = st.columns(4)
 
-            fig = px.bar(
-                type_quant,
-                x='Type',
-                y=['Moyenne', 'Somme'],
-                barmode='group',
-                title='Analyse par type de levé',
-                labels={'value': 'Valeur', 'variable': 'Métrique'}
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        with col1:
+            st.metric("Nombre d'utilisateurs", len(users_df))
 
-            # Heatmap d'activité
-            st.subheader("Répartition d'activité")
+        with col2:
+            st.metric("Nombre de levés", len(leves_df))
 
-            # Ajouter des colonnes pour le jour de la semaine et le mois
-            leves_df['mois'] = leves_df['date'].dt.month_name()
-            leves_df['jour'] = leves_df['date'].dt.day_name()
+        with col3:
+            st.metric("Quantité totale", f"{leves_df['quantite'].sum():,.0f}")
 
-            # Regroupement par jour et mois
-            heatmap_data = leves_df.groupby(['jour', 'mois']).size().unstack().fillna(0)
-
-            # Réordonner les jours de la semaine
-            jours_ordre = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-            heatmap_data = heatmap_data.reindex(jours_ordre)
-
-            fig = px.imshow(
-                heatmap_data,
-                title='Heatmap d\'activité par jour et mois',
-                labels=dict(x="Mois", y="Jour de la semaine", color="Nombre de levés"),
-                color_continuous_scale='Viridis'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        else:
-            st.info("Aucun levé n'a encore été enregistré.")
-
-    elif option == "Suppression de données":
-        st.subheader("Suppression de données")
-
-        with st.expander("Supprimer un levé spécifique"):
-            leve_id = st.number_input("ID du levé à supprimer", min_value=1, step=1)
-
-            if st.button("Supprimer ce levé"):
-                if delete_leve(leve_id):
-                    st.success(f"Levé ID {leve_id} supprimé avec succès!")
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.error("Erreur lors de la suppression du levé.")
-
-        with st.expander("Suppression par lot (DANGER)"):
-            st.warning("ATTENTION: Cette action est irréversible!")
-
-            # Critères de suppression par lot
-            filter_options = get_filter_options()
-
-            # Date
-            date_type = st.radio("Filtre de date", ["Aucun", "Avant une date", "Entre deux dates"])
-
-            if date_type == "Avant une date":
-                before_date = st.date_input("Supprimer les levés avant le", datetime.now()).strftime("%Y-%m-%d")
-            elif date_type == "Entre deux dates":
-                col1, col2 = st.columns(2)
-                with col1:
-                    start_date = st.date_input("Du", datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-                with col2:
-                    end_date = st.date_input("Au", datetime.now()).strftime("%Y-%m-%d")
-
-            # Village
-            village_options = ["Tous"] + filter_options["villages"]
-            village_filter = st.selectbox("Village", options=village_options, index=0)
-
-            # Type
-            type_options = ["Tous"] + filter_options["types"]
-            type_filter = st.selectbox("Type de levé", options=type_options, index=0)
-
-            # Topographe
-            topo_options = ["Tous"] + filter_options["topographes"]
-            topo_filter = st.selectbox("Topographe", options=topo_options, index=0)
-
-            # Confirmation pour éviter les suppressions accidentelles
-            confirmation = st.text_input("Tapez 'CONFIRMER' pour valider la suppression par lot")
-
-            if st.button("Supprimer les levés correspondants"):
-                if confirmation != "CONFIRMER":
-                    st.error("Vous devez taper 'CONFIRMER' pour valider cette action.")
-                else:
-                    # Code de suppression par lot à implémenter
-                    st.success("Suppression par lot effectuée avec succès!")
-                    time.sleep(1)
-                    st.rerun()
-
-    elif option == "Exportation/Importation":
-        st.subheader("Exportation/Importation de données")
-
-        with st.expander("Exporter les données"):
-            # Récupérer toutes les données
-            leves_df = get_all_leves()
-
-            if not leves_df.empty:
-                # Export CSV
-                csv = leves_df.to_csv(index=False)
-                st.download_button(
-                    label="Télécharger CSV",
-                    data=csv,
-                    file_name=f"leves_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-
-                # Export Excel
-                st.info("L'export Excel n'est pas encore disponible.")
-            else:
-                st.info("Aucun levé n'a encore été enregistré.")
-
-        with st.expander("Importer des données"):
-            st.info("La fonctionnalité d'import n'est pas encore disponible.")
+        with col4:
+            # Calculer le nombre de villages uniques
+            nb_villages = leves_df['village'].nunique()
+            st.metric("Nombre de villages", nb_villages)
+    else:
+        st.info("Pas assez de données pour afficher les statistiques.")
 
 
-# Initialisation de la base de données au démarrage
-init_db()
-
-
-# Interface principale
+# Programme principal
 def main():
+    # Initialisation de la base de données
+    init_db()
+
     # Initialisation des variables de session si elles n'existent pas
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
+
     if "username" not in st.session_state:
         st.session_state.username = None
+
     if "user" not in st.session_state:
         st.session_state.user = None
+
     if "show_login" not in st.session_state:
         st.session_state.show_login = False
+
     if "show_registration" not in st.session_state:
         st.session_state.show_registration = False
+
     if "current_page" not in st.session_state:
         st.session_state.current_page = "Dashboard"
 
-    # Affichage de la sidebar de navigation
-    page = show_navigation_sidebar()
-    # Si connecté, forcer une redirection par défaut vers Mon Compte
-    if st.session_state.authenticated and st.session_state.current_page == "Dashboard":
-        st.session_state.current_page = "Mon Compte"
-
-    # Gestion des pages d'authentification spéciales
+    # Affichage de la page de connexion si demandé
     if st.session_state.show_login:
         show_login_page()
-    elif st.session_state.show_registration:
-        show_registration_page()
-    # Si l'utilisateur a demandé une page spécifique via le menu
-    elif st.session_state.current_page != page:
-        st.session_state.current_page = page
+        return
 
-    # Affichage de la page demandée
-    if not st.session_state.show_login and not st.session_state.show_registration:
-        if page == "Dashboard":
-            show_dashboard()
-        elif page == "Saisie des Levés":
-            show_saisie_page()
-        elif page == "Suivi":
-            show_suivi_page()
-        elif page == "Mon Compte":
-            show_account_page()
-        elif page == "Admin Users":
-            show_admin_users_page()
-        elif page == "Admin Data":
-            show_admin_data_page()
+    # Affichage de la page d'inscription si demandé
+    if st.session_state.show_registration:
+        show_registration_page()
+        return
+
+    # Affichage de la barre de navigation
+    current_page = show_navigation_sidebar()
+
+    # Affichage de la page correspondante
+    if current_page == "Dashboard":
+        show_dashboard()
+    elif current_page == "Saisie des Levés":
+        show_saisie_page()
+    elif current_page == "Suivi":
+        show_suivi_page()
+    elif current_page == "Mon Compte":
+        show_account_page()
+    elif current_page == "Admin Users":
+        show_admin_users_page()
+    elif current_page == "Admin Data":
+        show_admin_data_page()
+    else:
+        show_dashboard()  # Page par défaut
 
 
 if __name__ == "__main__":
