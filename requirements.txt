@@ -1,5 +1,8 @@
 streamlit
+psycopg2-binary
+sqlalchemy
 pandas
 matplotlib
 seaborn
 plotly
+python-dotenv
