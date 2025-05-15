@@ -1,3 +1,4 @@
+# app.py (version PostgreSQL)
 import os
 import streamlit as st
 import pandas as pd
@@ -12,7 +13,6 @@ import time
 import psycopg2
 from sqlalchemy import create_engine
 from urllib.parse import quote_plus
-from contextlib import contextmanager
 
 # Configuration de la page
 st.set_page_config(
@@ -31,10 +31,8 @@ DB_USER = os.environ.get('DB_USER', 'postgres')
 DB_PASSWORD = os.environ.get('DB_PASSWORD', 'password')
 
 
-# Gestionnaire de contexte pour la connexion PostgreSQL
-@contextmanager
+# Fonction pour se connecter à PostgreSQL
 def get_connection():
-    conn = None
     try:
         conn = psycopg2.connect(
             host=DB_HOST,
@@ -43,13 +41,10 @@ def get_connection():
             user=DB_USER,
             password=DB_PASSWORD
         )
-        yield conn
+        return conn
     except Exception as e:
         st.error(f"Erreur de connexion à la base de données: {str(e)}")
-        yield None
-    finally:
-        if conn is not None:
-            conn.close()
+        return None
 
 
 # Fonction pour obtenir un moteur SQLAlchemy pour pandas
@@ -65,51 +60,53 @@ def get_engine():
 
 
 # Fonction pour initialiser la base de données
+# Fonction pour initialiser la base de données
 def init_db():
-    with get_connection() as conn:
-        if not conn:
-            return
+    conn = get_connection()
+    if not conn:
+        return
 
-        c = conn.cursor()
+    c = conn.cursor()
 
-        # Création de la table utilisateurs si elle n'existe pas
-        c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            username VARCHAR(100) UNIQUE NOT NULL,
-            password VARCHAR(100) NOT NULL,
-            email VARCHAR(100) UNIQUE,
-            phone VARCHAR(20),
-            role VARCHAR(20) NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
+    # Création de la table utilisateurs si elle n'existe pas
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(100) UNIQUE NOT NULL,
+        password VARCHAR(100) NOT NULL,
+        email VARCHAR(100) UNIQUE,
+        phone VARCHAR(20),
+        role VARCHAR(20) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
 
-        # Création de la table des levés topographiques avec les nouveaux champs
-        c.execute('''
-        CREATE TABLE IF NOT EXISTS leves (
-            id SERIAL PRIMARY KEY,
-            date DATE NOT NULL,
-            village VARCHAR(100) NOT NULL,
-            region VARCHAR(100),
-            commune VARCHAR(100),
-            type VARCHAR(50) NOT NULL,
-            quantite INTEGER NOT NULL,
-            appareil VARCHAR(100),
-            topographe VARCHAR(100) NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
+    # Création de la table des levés topographiques avec les nouveaux champs
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS leves (
+        id SERIAL PRIMARY KEY,
+        date DATE NOT NULL,
+        village VARCHAR(100) NOT NULL,
+        region VARCHAR(100),
+        commune VARCHAR(100),
+        type VARCHAR(50) NOT NULL,
+        quantite INTEGER NOT NULL,
+        appareil VARCHAR(100),
+        topographe VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
 
-        # Vérification si l'utilisateur admin existe déjà
-        c.execute("SELECT * FROM users WHERE username='admin'")
-        if not c.fetchone():
-            # Création de l'utilisateur admin par défaut
-            admin_password = hashlib.sha256("admin".encode()).hexdigest()
-            c.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
-                    ("admin", admin_password, "administrateur"))
+    # Vérification si l'utilisateur admin existe déjà
+    c.execute("SELECT * FROM users WHERE username='admin'")
+    if not c.fetchone():
+        # Création de l'utilisateur admin par défaut
+        admin_password = hashlib.sha256("admin".encode()).hexdigest()
+        c.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
+                  ("admin", admin_password, "administrateur"))
 
-        conn.commit()
+    conn.commit()
+    conn.close()
 
 
 # Fonction pour hacher un mot de passe
@@ -119,117 +116,126 @@ def hash_password(password):
 
 # Fonction pour vérifier si un utilisateur existe et si le mot de passe est correct
 def verify_user(username, password):
-    with get_connection() as conn:
-        if not conn:
-            return None
-
-        c = conn.cursor()
-
-        hashed_password = hash_password(password)
-        c.execute("SELECT * FROM users WHERE username=%s AND password=%s", (username, hashed_password))
-        user = c.fetchone()
-
-        if user:
-            return {"id": user[0], "username": user[1], "role": user[5]}
+    conn = get_connection()
+    if not conn:
         return None
+
+    c = conn.cursor()
+
+    hashed_password = hash_password(password)
+    c.execute("SELECT * FROM users WHERE username=%s AND password=%s", (username, hashed_password))
+    user = c.fetchone()
+
+    conn.close()
+
+    if user:
+        return {"id": user[0], "username": user[1], "role": user[5]}
+    return None
 
 
 # Fonction pour obtenir le rôle d'un utilisateur
 def get_user_role(username):
-    with get_connection() as conn:
-        if not conn:
-            return None
-
-        c = conn.cursor()
-
-        c.execute("SELECT role FROM users WHERE username=%s", (username,))
-        role = c.fetchone()
-
-        if role:
-            return role[0]
+    conn = get_connection()
+    if not conn:
         return None
+
+    c = conn.cursor()
+
+    c.execute("SELECT role FROM users WHERE username=%s", (username,))
+    role = c.fetchone()
+
+    conn.close()
+
+    if role:
+        return role[0]
+    return None
 
 
 # Fonction pour ajouter un nouvel utilisateur
 def add_user(username, password, email, phone, role="topographe"):
-    with get_connection() as conn:
-        if not conn:
-            return False, "Erreur de connexion à la base de données"
+    conn = get_connection()
+    if not conn:
+        return False, "Erreur de connexion à la base de données"
 
-        c = conn.cursor()
+    c = conn.cursor()
 
-        try:
-            hashed_password = hash_password(password)
-            c.execute("INSERT INTO users (username, password, email, phone, role) VALUES (%s, %s, %s, %s, %s)",
-                    (username, hashed_password, email, phone, role))
-            conn.commit()
-            success = True
-            message = "Compte créé avec succès!"
-        except psycopg2.IntegrityError:
-            conn.rollback()
-            success = False
-            message = "Erreur: Nom d'utilisateur ou email déjà utilisé."
-        except Exception as e:
-            conn.rollback()
-            success = False
-            message = f"Erreur: {str(e)}"
+    try:
+        hashed_password = hash_password(password)
+        c.execute("INSERT INTO users (username, password, email, phone, role) VALUES (%s, %s, %s, %s, %s)",
+                  (username, hashed_password, email, phone, role))
+        conn.commit()
+        success = True
+        message = "Compte créé avec succès!"
+    except psycopg2.IntegrityError:
+        conn.rollback()
+        success = False
+        message = "Erreur: Nom d'utilisateur ou email déjà utilisé."
+    except Exception as e:
+        conn.rollback()
+        success = False
+        message = f"Erreur: {str(e)}"
 
-        return success, message
+    conn.close()
+    return success, message
 
 
 # Fonction pour supprimer un utilisateur
 def delete_user(user_id):
-    with get_connection() as conn:
-        if not conn:
-            return False, "Erreur de connexion à la base de données"
+    conn = get_connection()
+    if not conn:
+        return False, "Erreur de connexion à la base de données"
 
-        c = conn.cursor()
+    c = conn.cursor()
 
-        try:
-            # Vérifier si l'utilisateur existe
-            c.execute("SELECT username FROM users WHERE id=%s", (user_id,))
-            user_data = c.fetchone()
+    try:
+        # Vérifier si l'utilisateur existe
+        c.execute("SELECT username FROM users WHERE id=%s", (user_id,))
+        user_data = c.fetchone()
 
-            if not user_data:
-                return False, "Utilisateur non trouvé."
+        if not user_data:
+            conn.close()
+            return False, "Utilisateur non trouvé."
 
-            username = user_data[0]
+        username = user_data[0]
 
-            # Vérifier si l'utilisateur est l'administrateur principal
-            if username == "admin":
-                return False, "Impossible de supprimer l'administrateur principal."
+        # Vérifier si l'utilisateur est l'administrateur principal
+        if username == "admin":
+            conn.close()
+            return False, "Impossible de supprimer l'administrateur principal."
 
-            # Supprimer l'utilisateur
-            c.execute("DELETE FROM users WHERE id=%s", (user_id,))
-            conn.commit()
-            success = True
-            message = f"Utilisateur {username} supprimé avec succès!"
-        except Exception as e:
-            conn.rollback()
-            success = False
-            message = f"Erreur lors de la suppression de l'utilisateur: {str(e)}"
+        # Supprimer l'utilisateur
+        c.execute("DELETE FROM users WHERE id=%s", (user_id,))
+        conn.commit()
+        success = True
+        message = f"Utilisateur {username} supprimé avec succès!"
+    except Exception as e:
+        conn.rollback()
+        success = False
+        message = f"Erreur lors de la suppression de l'utilisateur: {str(e)}"
 
-        return success, message
+    conn.close()
+    return success, message
 
 
 # Fonction pour modifier le mot de passe d'un utilisateur
 def change_password(username, new_password):
-    with get_connection() as conn:
-        if not conn:
-            return False
+    conn = get_connection()
+    if not conn:
+        return False
 
-        c = conn.cursor()
+    c = conn.cursor()
 
-        try:
-            hashed_password = hash_password(new_password)
-            c.execute("UPDATE users SET password=%s WHERE username=%s", (hashed_password, username))
-            conn.commit()
-            success = True
-        except Exception as e:
-            conn.rollback()
-            success = False
+    try:
+        hashed_password = hash_password(new_password)
+        c.execute("UPDATE users SET password=%s WHERE username=%s", (hashed_password, username))
+        conn.commit()
+        success = True
+    except Exception as e:
+        conn.rollback()
+        success = False
 
-        return success
+    conn.close()
+    return success
 
 
 # Fonction pour obtenir la liste des utilisateurs
@@ -248,30 +254,32 @@ def get_users():
 
 
 # Fonction pour ajouter un levé topographique
+# Fonction pour ajouter un levé topographique
 def add_leve(date, village, region, commune, type_leve, quantite, appareil, topographe):
-    with get_connection() as conn:
-        if not conn:
-            return False
+    conn = get_connection()
+    if not conn:
+        return False
 
-        c = conn.cursor()
+    c = conn.cursor()
 
-        try:
-            # Assurez-vous que quantite est un entier
-            quantite = int(quantite)
+    try:
+        # Assurez-vous que quantite est un entier
+        quantite = int(quantite)
 
-            c.execute('''
-            INSERT INTO leves (date, village, region, commune, type, quantite, appareil, topographe)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ''', (date, village, region, commune, type_leve, quantite, appareil, topographe))
+        c.execute('''
+        INSERT INTO leves (date, village, region, commune, type, quantite, appareil, topographe)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (date, village, region, commune, type_leve, quantite, appareil, topographe))
 
-            conn.commit()
-            success = True
-        except Exception as e:
-            conn.rollback()
-            st.error(f"Erreur lors de l'ajout du levé: {str(e)}")
-            success = False
+        conn.commit()
+        success = True
+    except Exception as e:
+        conn.rollback()
+        st.error(f"Erreur lors de l'ajout du levé: {str(e)}")
+        success = False
 
-        return success
+    conn.close()
+    return success
 
 
 # Fonction pour obtenir tous les levés
@@ -290,8 +298,9 @@ def get_all_leves():
 
 
 # Fonction pour obtenir les levés filtrés
+# Fonction pour obtenir les levés filtrés
 def get_filtered_leves(start_date=None, end_date=None, village=None, region=None, commune=None, type_leve=None,
-                     appareil=None, topographe=None):
+                       appareil=None, topographe=None):
     engine = get_engine()
     if not engine:
         return pd.DataFrame()
@@ -335,8 +344,7 @@ def get_filtered_leves(start_date=None, end_date=None, village=None, region=None
     query += " ORDER BY date DESC"
 
     try:
-        with engine.connect() as connection:
-            leves = pd.read_sql_query(query, connection, params=params)
+        leves = pd.read_sql_query(query, engine, params=params)
         return leves
     except Exception as e:
         st.error(f"Erreur lors de la récupération des levés filtrés: {str(e)}")
@@ -351,8 +359,7 @@ def get_leves_by_topographe(topographe):
 
     query = "SELECT * FROM leves WHERE topographe=%s ORDER BY date DESC"
     try:
-        with engine.connect() as connection:
-            leves = pd.read_sql_query(query, connection, params=(topographe,))
+        leves = pd.read_sql_query(query, engine, params=(topographe,))
         return leves
     except Exception as e:
         st.error(f"Erreur lors de la récupération des levés: {str(e)}")
@@ -360,33 +367,33 @@ def get_leves_by_topographe(topographe):
 
 
 # Fonction pour obtenir les données uniques pour les filtres
+# Fonction pour obtenir les données uniques pour les filtres
 def get_filter_options():
     engine = get_engine()
     if not engine:
         return {"villages": [], "regions": [], "communes": [], "types": [], "appareils": [], "topographes": []}
 
     try:
-        with engine.connect() as connection:
-            # Obtenir les villages uniques
-            villages = pd.read_sql_query("SELECT DISTINCT village FROM leves ORDER BY village", connection)
+        # Obtenir les villages uniques
+        villages = pd.read_sql_query("SELECT DISTINCT village FROM leves ORDER BY village", engine)
 
-            # Obtenir les régions uniques
-            regions = pd.read_sql_query("SELECT DISTINCT region FROM leves WHERE region IS NOT NULL ORDER BY region",
-                                      connection)
+        # Obtenir les régions uniques
+        regions = pd.read_sql_query("SELECT DISTINCT region FROM leves WHERE region IS NOT NULL ORDER BY region",
+                                    engine)
 
-            # Obtenir les communes uniques
-            communes = pd.read_sql_query("SELECT DISTINCT commune FROM leves WHERE commune IS NOT NULL ORDER BY commune",
-                                       connection)
+        # Obtenir les communes uniques
+        communes = pd.read_sql_query("SELECT DISTINCT commune FROM leves WHERE commune IS NOT NULL ORDER BY commune",
+                                     engine)
 
-            # Obtenir les types de levés uniques
-            types = pd.read_sql_query("SELECT DISTINCT type FROM leves ORDER BY type", connection)
+        # Obtenir les types de levés uniques
+        types = pd.read_sql_query("SELECT DISTINCT type FROM leves ORDER BY type", engine)
 
-            # Obtenir les appareils uniques
-            appareils = pd.read_sql_query(
-                "SELECT DISTINCT appareil FROM leves WHERE appareil IS NOT NULL ORDER BY appareil", connection)
+        # Obtenir les appareils uniques
+        appareils = pd.read_sql_query(
+            "SELECT DISTINCT appareil FROM leves WHERE appareil IS NOT NULL ORDER BY appareil", engine)
 
-            # Obtenir les topographes uniques
-            topographes = pd.read_sql_query("SELECT DISTINCT topographe FROM leves ORDER BY topographe", connection)
+        # Obtenir les topographes uniques
+        topographes = pd.read_sql_query("SELECT DISTINCT topographe FROM leves ORDER BY topographe", engine)
 
         return {
             "villages": villages["village"].tolist() if not villages.empty else [],
@@ -403,37 +410,39 @@ def get_filter_options():
 
 # Fonction pour supprimer un levé
 def delete_leve(leve_id):
-    with get_connection() as conn:
-        if not conn:
-            return False
+    conn = get_connection()
+    if not conn:
+        return False
 
-        c = conn.cursor()
+    c = conn.cursor()
 
-        try:
-            c.execute("DELETE FROM leves WHERE id=%s", (leve_id,))
-            conn.commit()
-            success = True
-        except Exception as e:
-            conn.rollback()
-            st.error(f"Erreur lors de la suppression du levé: {str(e)}")
-            success = False
+    try:
+        c.execute("DELETE FROM leves WHERE id=%s", (leve_id,))
+        conn.commit()
+        success = True
+    except Exception as e:
+        conn.rollback()
+        st.error(f"Erreur lors de la suppression du levé: {str(e)}")
+        success = False
 
-        return success
+    conn.close()
+    return success
 
 
 # Fonction pour vérifier si un utilisateur est propriétaire d'un levé
 def is_leve_owner(leve_id, username):
-    with get_connection() as conn:
-        if not conn:
-            return False
-
-        c = conn.cursor()
-        c.execute("SELECT topographe FROM leves WHERE id=%s", (leve_id,))
-        result = c.fetchone()
-
-        if result and result[0] == username:
-            return True
+    conn = get_connection()
+    if not conn:
         return False
+
+    c = conn.cursor()
+    c.execute("SELECT topographe FROM leves WHERE id=%s", (leve_id,))
+    result = c.fetchone()
+    conn.close()
+
+    if result and result[0] == username:
+        return True
+    return False
 
 
 # Fonction pour supprimer un levé avec vérification du propriétaire
@@ -442,26 +451,28 @@ def delete_user_leve(leve_id, username):
     if not is_leve_owner(leve_id, username):
         return False, "Vous n'êtes pas autorisé à supprimer ce levé."
 
-    with get_connection() as conn:
-        if not conn:
-            return False, "Erreur de connexion à la base de données"
+    conn = get_connection()
+    if not conn:
+        return False, "Erreur de connexion à la base de données"
 
-        c = conn.cursor()
+    c = conn.cursor()
 
-        try:
-            c.execute("DELETE FROM leves WHERE id=%s AND topographe=%s", (leve_id, username))
-            if c.rowcount == 0:
-                return False, "Levé non trouvé ou vous n'êtes pas autorisé à le supprimer."
+    try:
+        c.execute("DELETE FROM leves WHERE id=%s AND topographe=%s", (leve_id, username))
+        if c.rowcount == 0:
+            conn.close()
+            return False, "Levé non trouvé ou vous n'êtes pas autorisé à le supprimer."
 
-            conn.commit()
-            success = True
-            message = "Levé supprimé avec succès!"
-        except Exception as e:
-            conn.rollback()
-            success = False
-            message = f"Erreur lors de la suppression du levé: {str(e)}"
+        conn.commit()
+        success = True
+        message = "Levé supprimé avec succès!"
+    except Exception as e:
+        conn.rollback()
+        success = False
+        message = f"Erreur lors de la suppression du levé: {str(e)}"
 
-        return success, message
+    conn.close()
+    return success, message
 
 
 # Fonction pour valider le format de l'email
@@ -613,6 +624,7 @@ def show_navigation_sidebar():
     return page
 
 
+# Fonction pour afficher le dashboard
 # Fonction pour afficher le dashboard
 def show_dashboard():
     st.title("Dashboard des Levés Topographiques")
@@ -806,745 +818,557 @@ def show_dashboard():
                     fig.update_layout(xaxis={'categoryorder': 'total descending'})
                     st.plotly_chart(fig, use_container_width=True)
 
-        # Tableau récapitulatif des données
-        st.subheader("Tableau récapitulatif des données")
-        
-        # Affichage des données avec formatage de date pour meilleure lisibilité
-        if not leves_filtered.empty:
-            display_df = leves_filtered.copy()
-            display_df['date'] = display_df['date'].dt.strftime('%d-%m-%Y')
-            st.dataframe(display_df, height=300, use_container_width=True)
-        else:
-            st.info("Aucune donnée disponible pour ce filtre.")
+        # Afficher la somme totale des quantités
+        st.subheader("Statistiques Globales")
+        total_quantite = leves_filtered['quantite'].sum()
+        moyenne_quantite = leves_filtered['quantite'].mean()
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Nombre Total de Levés", len(leves_filtered))
+        with col2:
+            st.metric("Quantité Totale", f"{total_quantite:,.0f}")
+        with col3:
+            st.metric("Moyenne par Levé", f"{moyenne_quantite:.2f}")
+
+        # Bouton central pour saisir des levés
+        st.markdown("---")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("Saisir un nouveau levé", use_container_width=True):
+                if st.session_state.get("authenticated", False):
+                    st.session_state.current_page = "Saisie des Levés"
+                    st.rerun()
+                else:
+                    st.session_state.show_login = True
+                    st.session_state.show_registration = False
+                    st.warning("Veuillez vous connecter pour saisir des levés.")
+                    st.rerun()
     else:
-        st.info("Aucune donnée de levé n'a encore été enregistrée dans le système.")
+        st.info("Aucun levé n'a encore été enregistré. Commencez par saisir des données.")
+
+        # Bouton central pour saisir des levés
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("Saisir un nouveau levé", use_container_width=True):
+                if st.session_state.get("authenticated", False):
+                    st.session_state.current_page = "Saisie des Levés"
+                    st.rerun()
+                else:
+                    st.session_state.show_login = True
+                    st.session_state.show_registration = False
+                    st.warning("Veuillez vous connecter pour saisir des levés.")
+                    st.rerun()
 
 
 # Fonction pour afficher la page de saisie des levés
-def show_leve_form():
-    st.title("Saisie d'un nouveau levé topographique")
+# Fonction pour afficher la page de saisie des levés
+def show_saisie_page():
+    st.title("Saisie des Levés Topographiques")
 
+    # Vérification que l'utilisateur est connecté
     if not st.session_state.get("authenticated", False):
-        st.warning("Veuillez vous connecter pour ajouter un levé.")
+        st.warning("Vous devez être connecté pour saisir des levés.")
+
+        # Afficher le formulaire de connexion directement sur cette page
+        with st.form("login_form_embed"):
+            st.subheader("Connexion")
+            username = st.text_input("Nom d'utilisateur")
+            password = st.text_input("Mot de passe", type="password")
+            submit = st.form_submit_button("Se connecter")
+
+            if submit:
+                user = verify_user(username, password)
+                if user:
+                    st.session_state.user = user
+                    st.session_state.username = username
+                    st.session_state.authenticated = True
+                    st.success(f"Connexion réussie! Bienvenue {username}!")
+                    st.rerun()
+                else:
+                    st.error("Nom d'utilisateur ou mot de passe incorrect.")
+
+        st.markdown("---")
+        st.markdown("Pas encore de compte? Cliquez sur 'S'inscrire' dans le menu latéral.")
         return
 
-    # Récupérer les options pour les filtres
-    filter_options = get_filter_options()
+    # Utilisons une clé pour forcer la réinitialisation du formulaire
+    if "form_key" not in st.session_state:
+        st.session_state.form_key = 0
 
-    with st.form("leve_form"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            date = st.date_input("Date du levé", datetime.now())
-            
-            # Champ village avec suggestions ou nouveau village
-            existing_villages = filter_options["villages"]
-            village_option = st.radio("Village", 
-                                     ["Choisir dans la liste", "Ajouter un nouveau village"],
-                                     horizontal=True)
-            
-            if village_option == "Choisir dans la liste" and existing_villages:
-                village = st.selectbox("Sélectionner un village", options=existing_villages)
-            else:
-                village = st.text_input("Nom du village")
-            
-            # Type de levé
-            existing_types = filter_options["types"] if filter_options["types"] else ["Parcellaire", "Foncier", "Routier", "Autre"]
-            type_option = st.radio("Type de levé", 
-                                  ["Choisir dans la liste", "Autre type"],
-                                  horizontal=True)
-            
-            if type_option == "Choisir dans la liste":
-                type_leve = st.selectbox("Sélectionner un type", options=existing_types)
-            else:
-                type_leve = st.text_input("Préciser le type de levé")
-            
-            # Appareil utilisé
-            existing_appareils = filter_options["appareils"] if filter_options["appareils"] else ["GPS", "Station totale", "Drone", "Autre"]
-            appareil_option = st.radio("Appareil utilisé", 
-                                      ["Choisir dans la liste", "Autre appareil"],
-                                      horizontal=True)
-            
-            if appareil_option == "Choisir dans la liste":
-                appareil = st.selectbox("Sélectionner un appareil", options=existing_appareils)
-            else:
-                appareil = st.text_input("Préciser l'appareil utilisé")
-        
-        with col2:
-            # Région avec suggestions
-            existing_regions = filter_options["regions"]
-            region_option = st.radio("Région", 
-                                    ["Choisir dans la liste", "Ajouter une nouvelle région"],
-                                    horizontal=True)
-            
-            if region_option == "Choisir dans la liste" and existing_regions:
-                region = st.selectbox("Sélectionner une région", options=existing_regions)
-            else:
-                region = st.text_input("Nom de la région")
-            
-            # Commune avec suggestions
-            existing_communes = filter_options["communes"]
-            commune_option = st.radio("Commune", 
-                                     ["Choisir dans la liste", "Ajouter une nouvelle commune"],
-                                     horizontal=True)
-            
-            if commune_option == "Choisir dans la liste" and existing_communes:
-                commune = st.selectbox("Sélectionner une commune", options=existing_communes)
-            else:
-                commune = st.text_input("Nom de la commune")
-            
-            # Quantité (nombre d'hectares, de parcelles, etc.)
-            quantite = st.number_input("Quantité (en hectares, parcelles, etc.)", min_value=1, value=1)
-            
-        # Le topographe est automatiquement l'utilisateur connecté
+    with st.form(key=f"leve_form_{st.session_state.form_key}"):
+        # La date du jour est préremplie
+        date = st.date_input("Date du levé", datetime.now())
+
+        # Nom du topographe prérempli avec le nom de l'utilisateur connecté
         topographe = st.session_state.username
-        
-        submit = st.form_submit_button("Enregistrer")
-        
+        st.write(f"Topographe: **{topographe}**")
+
+        # Autres champs du formulaire
+        col1, col2 = st.columns(2)
+        with col1:
+            village = st.text_input("Village", placeholder="Nom du village")
+            region = st.text_input("Région", placeholder="Nom de la région")
+        with col2:
+            commune = st.text_input("Commune", placeholder="Nom de la commune")
+            appareil = st.text_input("Appareil utilisé", placeholder="Modèle de l'appareil")
+
+        # Types de levés prédéfinis
+        type_options = ["Batîments", "Champs", "Edifice publique", "Autre"]
+        type_leve = st.selectbox("Type de levé", options=type_options)
+
+        quantite = st.number_input("Quantité", min_value=0, step=1, format="%d")
+
+        submit = st.form_submit_button("Enregistrer le levé")
+
         if submit:
-            if not village or not type_leve:
-                st.error("Le village et le type de levé sont obligatoires.")
+            if not village:
+                st.error("Veuillez entrer le nom du village.")
+            elif quantite <= 0:
+                st.error("La quantité doit être supérieure à zéro.")
             else:
-                # Correction: utiliser un gestionnaire de contexte pour la connexion
-                success = add_leve(date, village, region, commune, type_leve, quantite, appareil, topographe)
-                if success:
+                # Conversion de la date au format string
+                date_str = date.strftime("%Y-%m-%d")
+
+                # Enregistrement du levé
+                if add_leve(date_str, village, region, commune, type_leve, quantite, appareil, topographe):
                     st.success("Levé enregistré avec succès!")
-                    # Vider les champs ou les réinitialiser
-                    # On peut ajouter des commandes pour réinitialiser les champs après la soumission
+                    # Incrémenter la clé pour réinitialiser le formulaire
+                    st.session_state.form_key += 1
+                    time.sleep(1)
+                    st.rerun()
                 else:
-                    st.error("Erreur lors de l'enregistrement du levé. Veuillez réessayer.")
+                    st.error("Erreur lors de l'enregistrement du levé.")
 
 
-# Fonction pour afficher la page de suivi des levés
-def show_leve_tracking():
+# Fonction pour afficher la page de suivi
+# Fonction pour afficher la page de suivi
+def show_suivi_page():
     st.title("Suivi des Levés Topographiques")
 
+    # Vérification que l'utilisateur est connecté
     if not st.session_state.get("authenticated", False):
-        st.warning("Veuillez vous connecter pour voir le suivi des levés.")
+        st.warning("Vous devez être connecté pour accéder au suivi.")
+
+        # Afficher le formulaire de connexion directement sur cette page
+        with st.form("login_form_embed_suivi"):
+            st.subheader("Connexion")
+            username = st.text_input("Nom d'utilisateur")
+            password = st.text_input("Mot de passe", type="password")
+            submit = st.form_submit_button("Se connecter")
+
+            if submit:
+                user = verify_user(username, password)
+                if user:
+                    st.session_state.user = user
+                    st.session_state.username = username
+                    st.session_state.authenticated = True
+                    st.success(f"Connexion réussie! Bienvenue {username}!")
+                    st.rerun()
+                else:
+                    st.error("Nom d'utilisateur ou mot de passe incorrect.")
+
+        st.markdown("---")
+        st.markdown("Pas encore de compte? Cliquez sur 'S'inscrire' dans le menu latéral.")
         return
 
-    user_role = st.session_state.user["role"]
-    username = st.session_state.username
-
-    # Récupérer les options pour les filtres
+    # Récupération des options de filtre
     filter_options = get_filter_options()
-    
-    # Interface de recherche et filtrage
-    with st.expander("Filtres de recherche", expanded=True):
-        col1, col2, col3 = st.columns(3)
-        
+
+    # Colonne pour les filtres
+    with st.expander("Filtres", expanded=True):
+        col1, col2 = st.columns(2)
         with col1:
             start_date = st.date_input("Date de début", datetime.now() - timedelta(days=30))
-        
         with col2:
             end_date = st.date_input("Date de fin", datetime.now())
-        
-        with col3:
-            if user_role == "administrateur":
-                topographe_options = ["Tous"] + filter_options["topographes"]
-                topographe_filter = st.selectbox("Topographe", options=topographe_options, index=0)
-            else:
-                topographe_filter = username  # L'utilisateur ne peut voir que ses propres levés
-        
-        col1, col2 = st.columns(2)
-        
+
+        col1, col2, col3 = st.columns(3)
         with col1:
-            # Type de levé
-            type_options = ["Tous"] + filter_options["types"]
-            type_filter = st.selectbox("Type de levé", options=type_options, index=0)
-        
-        with col2:
-            # Village
             village_options = ["Tous"] + filter_options["villages"]
-            village_filter = st.selectbox("Village", options=village_options, index=0)
-        
-        search_button = st.button("Rechercher")
-    
-    # Affichage des résultats
-    if search_button or 'first_load' not in st.session_state:
-        st.session_state.first_load = False  # Pour éviter de recharger automatiquement à chaque changement
-        
-        # Récupération des levés filtrés
-        # Correction: Utilisation de la connexion SQLAlchemy via get_engine pour éviter les problèmes de connexion fermée
-        if user_role == "administrateur" and topographe_filter == "Tous":
-            leves_df = get_filtered_leves(
-                start_date=start_date,
-                end_date=end_date,
-                village=None if village_filter == "Tous" else village_filter,
-                type_leve=None if type_filter == "Tous" else type_filter
-            )
-        else:
-            # Pour un utilisateur normal ou un admin qui a choisi un topographe spécifique
-            selected_topographe = username if user_role != "administrateur" else (
-                None if topographe_filter == "Tous" else topographe_filter
-            )
-            
-            leves_df = get_filtered_leves(
-                start_date=start_date,
-                end_date=end_date,
-                village=None if village_filter == "Tous" else village_filter,
-                type_leve=None if type_filter == "Tous" else type_filter,
-                topographe=selected_topographe
-            )
-        
-        if not leves_df.empty:
-            # Conversion de la date pour l'affichage
-            leves_df['date'] = pd.to_datetime(leves_df['date']).dt.strftime('%d-%m-%Y')
-            
-            # Ajout de boutons d'action
-            if user_role == "administrateur":
-                # Les administrateurs peuvent supprimer n'importe quel levé
-                st.subheader(f"Résultats: {len(leves_df)} levés trouvés")
-                
-                # On crée un dataframe pour l'affichage sans les boutons
-                display_df = leves_df.copy()
-                st.dataframe(display_df, height=400, use_container_width=True)
-                
-                # Permettre la suppression de levés sélectionnés
-                if not display_df.empty:
-                    st.subheader("Actions")
-                    leve_to_delete = st.selectbox("Sélectionner un levé à supprimer:", 
-                                               options=display_df['id'].tolist(),
-                                               format_func=lambda x: f"ID: {x} - {display_df[display_df['id'] == x]['village'].values[0]} ({display_df[display_df['id'] == x]['date'].values[0]})")
-                    
-                    if st.button("Supprimer ce levé"):
-                        # Confirmation de suppression
-                        if st.session_state.get('confirm_delete', False):
-                            success = delete_leve(leve_to_delete)
-                            if success:
-                                st.success(f"Levé ID:{leve_to_delete} supprimé avec succès!")
-                                st.session_state.confirm_delete = False
-                                st.rerun()  # Recharger pour mettre à jour la liste
-                            else:
-                                st.error("Erreur lors de la suppression.")
-                            st.session_state.confirm_delete = False
-                        else:
-                            st.warning("Êtes-vous sûr de vouloir supprimer ce levé? Cette action est irréversible.")
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button("Oui, supprimer"):
-                                    st.session_state.confirm_delete = True
-                                    st.rerun()
-                            with col2:
-                                if st.button("Annuler"):
-                                    st.session_state.confirm_delete = False
+            village = st.selectbox("Village", options=village_options)
+            village = None if village == "Tous" else village
+
+            region_options = ["Toutes"] + filter_options["regions"]
+            region = st.selectbox("Région", options=region_options)
+            region = None if region == "Toutes" else region
+
+        with col2:
+            commune_options = ["Toutes"] + filter_options["communes"]
+            commune = st.selectbox("Commune", options=commune_options)
+            commune = None if commune == "Toutes" else commune
+
+            type_options = ["Tous"] + filter_options["types"]
+            type_leve = st.selectbox("Type de levé", options=type_options)
+            type_leve = None if type_leve == "Tous" else type_leve
+
+        with col3:
+            appareil_options = ["Tous"] + filter_options["appareils"]
+            appareil = st.selectbox("Appareil", options=appareil_options)
+            appareil = None if appareil == "Tous" else appareil
+
+            # Pour les administrateurs, afficher tous les topographes
+            # Pour les autres, voir uniquement ses propres levés
+            if st.session_state.user["role"] == "administrateur":
+                topo_options = ["Tous"] + filter_options["topographes"]
+                topographe = st.selectbox("Topographe", options=topo_options)
+                topographe = None if topographe == "Tous" else topographe
             else:
-                # Les utilisateurs standards ne peuvent supprimer que leurs propres levés
-                st.subheader(f"Vos levés: {len(leves_df)} levés trouvés")
-                
-                # Affichage du tableau sans boutons
-                display_df = leves_df.copy()
-                st.dataframe(display_df, height=400, use_container_width=True)
-                
-                # Permettre la suppression de ses propres levés
-                if not display_df.empty:
-                    st.subheader("Actions")
-                    leve_to_delete = st.selectbox("Sélectionner un levé à supprimer:", 
-                                               options=display_df['id'].tolist(),
-                                               format_func=lambda x: f"ID: {x} - {display_df[display_df['id'] == x]['village'].values[0]} ({display_df[display_df['id'] == x]['date'].values[0]})")
-                    
-                    if st.button("Supprimer ce levé"):
-                        # Vérification que c'est bien son propre levé
-                        if st.session_state.get('confirm_delete', False):
-                            success, message = delete_user_leve(leve_to_delete, username)
-                            if success:
-                                st.success(message)
-                                st.session_state.confirm_delete = False
-                                st.rerun()  # Recharger pour mettre à jour la liste
-                            else:
-                                st.error(message)
-                            st.session_state.confirm_delete = False
-                        else:
-                            st.warning("Êtes-vous sûr de vouloir supprimer ce levé? Cette action est irréversible.")
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button("Oui, supprimer"):
-                                    st.session_state.confirm_delete = True
-                                    st.rerun()
-                            with col2:
-                                if st.button("Annuler"):
-                                    st.session_state.confirm_delete = False
-        else:
-            st.info("Aucun levé ne correspond aux critères de recherche.")
+                topographe = st.session_state.username
+                st.write(f"Topographe: **{topographe}**")
+
+    # Récupération des levés filtrés
+    leves_df = get_filtered_leves(start_date, end_date, village, region, commune, type_leve, appareil, topographe)
+
+    # Affichage des données
+    if not leves_df.empty:
+        # Renommage des colonnes pour un affichage plus convivial
+        leves_df = leves_df.rename(columns={
+            'id': 'ID',
+            'date': 'Date',
+            'village': 'Village',
+            'region': 'Région',
+            'commune': 'Commune',
+            'type': 'Type',
+            'quantite': 'Quantité',
+            'appareil': 'Appareil',
+            'topographe': 'Topographe',
+            'created_at': 'Date de création'
+        })
+
+        # Formatage des dates
+        leves_df['Date'] = pd.to_datetime(leves_df['Date']).dt.strftime('%d/%m/%Y')
+
+        # Affichage des données avec une mise en forme améliorée
+        st.dataframe(
+            leves_df[['ID', 'Date', 'Village', 'Région', 'Commune', 'Type', 'Quantité', 'Appareil', 'Topographe']],
+            use_container_width=True,
+            height=400
+        )
+
+        # Statistiques sur les données filtrées
+        st.subheader("Statistiques")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Nombre Total de Levés", len(leves_df))
+        with col2:
+            st.metric("Quantité Totale", f"{leves_df['Quantité'].sum():,.0f}")
+        with col3:
+            st.metric("Moyenne par Levé", f"{leves_df['Quantité'].mean():.2f}")
+
+        # Option d'export
+        if st.download_button(
+                label="Télécharger les données en CSV",
+                data=leves_df.to_csv(index=False).encode('utf-8'),
+                file_name=f"leves_export_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime='text/csv'
+        ):
+            st.success("Export réussi!")
+
+        # Pour les utilisateurs normaux, possibilité de supprimer ses propres levés
+        if st.session_state.user["role"] != "administrateur":
+            st.subheader("Gestion de mes levés")
+
+            with st.form("delete_own_leve_form"):
+                leve_id = st.number_input("ID du levé à supprimer", min_value=1, step=1)
+                delete_submit = st.form_submit_button("Supprimer mon levé")
+
+                if delete_submit:
+                    success, message = delete_user_leve(leve_id, st.session_state.username)
+                    if success:
+                        st.success(message)
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(message)
+
+        # Pour les administrateurs, possibilité de supprimer des levés
+        if st.session_state.user["role"] == "administrateur":
+            st.subheader("Gestion des Levés (Admin)")
+
+            with st.form("delete_leve_form"):
+                leve_id = st.number_input("ID du levé à supprimer", min_value=1, step=1)
+                delete_submit = st.form_submit_button("Supprimer le levé")
+
+                if delete_submit:
+                    if delete_leve(leve_id):
+                        st.success(f"Levé {leve_id} supprimé avec succès!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Erreur lors de la suppression du levé. Vérifiez l'ID.")
+    else:
+        st.info("Aucun levé ne correspond aux critères de recherche sélectionnés.")
 
 
-# Fonction pour afficher la page Mon Compte
+# Fonction pour afficher la page de mon compte
 def show_account_page():
     st.title("Mon Compte")
 
+    # Vérification que l'utilisateur est connecté
     if not st.session_state.get("authenticated", False):
-        st.warning("Veuillez vous connecter pour accéder à votre compte.")
+        st.warning("Vous devez être connecté pour accéder à votre compte.")
         return
 
     username = st.session_state.username
-    user_role = st.session_state.user["role"]
+    role = st.session_state.user["role"]
 
     st.write(f"**Nom d'utilisateur:** {username}")
-    st.write(f"**Rôle:** {user_role}")
+    st.write(f"**Rôle:** {role}")
 
-    # Section pour changer le mot de passe
-    st.subheader("Changer mon mot de passe")
-    
+    # Formulaire de changement de mot de passe
+    st.subheader("Changer de mot de passe")
     with st.form("change_password_form"):
-        current_password = st.text_input("Mot de passe actuel", type="password")
+        old_password = st.text_input("Ancien mot de passe", type="password")
         new_password = st.text_input("Nouveau mot de passe", type="password")
-        confirm_password = st.text_input("Confirmer nouveau mot de passe", type="password")
-        
+        confirm_password = st.text_input("Confirmer le nouveau mot de passe", type="password")
         submit = st.form_submit_button("Changer le mot de passe")
-        
+
         if submit:
-            if not current_password or not new_password or not confirm_password:
+            if not old_password or not new_password or not confirm_password:
                 st.error("Tous les champs sont obligatoires.")
             elif new_password != confirm_password:
                 st.error("Les nouveaux mots de passe ne correspondent pas.")
             else:
-                # Vérifier le mot de passe actuel
-                user = verify_user(username, current_password)
-                if user:
-                    # Mot de passe correct, on peut le changer
-                    success = change_password(username, new_password)
-                    if success:
+                # Vérifier que l'ancien mot de passe est correct
+                user = verify_user(username, old_password)
+                if not user:
+                    st.error("Ancien mot de passe incorrect.")
+                else:
+                    # Mettre à jour le mot de passe
+                    if change_password(username, new_password):
                         st.success("Mot de passe changé avec succès!")
                     else:
-                        st.error("Erreur lors du changement de mot de passe. Veuillez réessayer.")
-                else:
-                    st.error("Mot de passe actuel incorrect.")
+                        st.error("Erreur lors du changement de mot de passe.")
 
-    # Afficher les statistiques de l'utilisateur
-    st.subheader("Mes statistiques")
-    
-    # Récupération des levés de l'utilisateur
-    user_leves = get_leves_by_topographe(username)
-    
-    if not user_leves.empty:
-        # Afficher quelques statistiques générales
+    # Statistiques personnelles pour le topographe
+    st.subheader("Mes Statistiques")
+
+    # Récupérer les levés de l'utilisateur
+    leves_df = get_leves_by_topographe(username)
+
+    if not leves_df.empty:
+        # Convertir la colonne date en datetime pour les analyses
+        leves_df['date'] = pd.to_datetime(leves_df['date'])
+
+        # Métriques principales
         col1, col2, col3 = st.columns(3)
-        
         with col1:
-            st.metric("Nombre total de levés", len(user_leves))
-        
+            st.metric("Nombre Total de Levés", len(leves_df))
         with col2:
-            if 'quantite' in user_leves.columns:
-                st.metric("Total quantité", user_leves['quantite'].sum())
-        
+            st.metric("Quantité Totale", f"{leves_df['quantite'].sum():,.0f}")
         with col3:
-            if 'date' in user_leves.columns:
-                most_recent = pd.to_datetime(user_leves['date']).max().strftime('%d-%m-%Y')
-                st.metric("Dernier levé", most_recent)
-        
-        # Répartition des types de levés
-        if not user_leves.empty and 'type' in user_leves.columns:
-            st.subheader("Mes types de levés")
-            
-            type_counts = user_leves['type'].value_counts().reset_index()
-            type_counts.columns = ['Type', 'Nombre']
-            
-            fig = px.pie(
-                type_counts,
-                values='Nombre',
-                names='Type',
-                title='Répartition de mes types de levés',
-                hole=0.3
-            )
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Évolution des levés dans le temps
-        if not user_leves.empty and 'date' in user_leves.columns:
-            st.subheader("Mon activité dans le temps")
-            
-            user_leves['date'] = pd.to_datetime(user_leves['date'])
-            time_series = user_leves.groupby(pd.Grouper(key='date', freq='M')).size().reset_index()
-            time_series.columns = ['Date', 'Nombre']
-            
-            fig = px.line(
-                time_series,
-                x='Date',
-                y='Nombre',
-                title='Évolution mensuelle de mes levés',
-                markers=True
-            )
-            fig.update_layout(xaxis_title='Date', yaxis_title='Nombre de levés')
-            st.plotly_chart(fig, use_container_width=True)
+            st.metric("Moyenne par Levé", f"{leves_df['quantite'].mean():.2f}")
+
+        # Graphique d'évolution des levés dans le temps
+        st.subheader("Évolution de mes levés")
+        time_series = leves_df.groupby(pd.Grouper(key='date', freq='D')).size().reset_index()
+        time_series.columns = ['Date', 'Nombre']
+
+        fig = px.line(
+            time_series,
+            x='Date',
+            y='Nombre',
+            title='Évolution quotidienne de mes levés',
+            markers=True
+        )
+        fig.update_layout(xaxis_title='Date', yaxis_title='Nombre de levés')
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Répartition par type de levé
+        st.subheader("Répartition par type de levé")
+        type_counts = leves_df['type'].value_counts().reset_index()
+        type_counts.columns = ['Type', 'Nombre']
+
+        fig = px.pie(
+            type_counts,
+            values='Nombre',
+            names='Type',
+            title='Répartition des types de levés',
+            hole=0.3
+        )
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Vous n'avez pas encore enregistré de levés.")
 
 
 # Fonction pour afficher la page d'administration des utilisateurs
 def show_admin_users_page():
-    st.title("Gestion des Utilisateurs")
+    st.title("Administration - Gestion des Utilisateurs")
 
+    # Vérification que l'utilisateur est connecté et est admin
     if not st.session_state.get("authenticated", False) or st.session_state.user["role"] != "administrateur":
-        st.warning("Accès non autorisé. Cette page nécessite des droits d'administrateur.")
+        st.error("Accès non autorisé. Cette page est réservée aux administrateurs.")
         return
 
-    # Récupérer tous les utilisateurs
-    users = get_users()
+    # Récupération de la liste des utilisateurs
+    users_df = get_users()
 
-    if users.empty:
-        st.warning("Aucun utilisateur trouvé.")
-        return
+    if not users_df.empty:
+        # Renommage des colonnes pour un affichage plus convivial
+        users_df = users_df.rename(columns={
+            'id': 'ID',
+            'username': 'Nom d\'utilisateur',
+            'email': 'Email',
+            'phone': 'Téléphone',
+            'role': 'Rôle',
+            'created_at': 'Date de création'
+        })
 
-    # Afficher la liste des utilisateurs
-    st.subheader("Liste des utilisateurs")
-    st.dataframe(users, height=300, use_container_width=True)
+        # Formatage des dates
+        if 'Date de création' in users_df.columns:
+            users_df['Date de création'] = pd.to_datetime(users_df['Date de création']).dt.strftime('%d/%m/%Y %H:%M')
 
-    # Section pour ajouter un nouvel utilisateur
+        # Affichage des utilisateurs
+        st.dataframe(users_df, use_container_width=True)
+
+        # Formulaire pour la suppression d'un utilisateur
+        st.subheader("Supprimer un utilisateur")
+        with st.form("delete_user_form"):
+            user_id = st.number_input("ID de l'utilisateur à supprimer", min_value=1, step=1)
+            delete_submit = st.form_submit_button("Supprimer l'utilisateur")
+
+            if delete_submit:
+                success, message = delete_user(user_id)
+                if success:
+                    st.success(message)
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(message)
+    else:
+        st.info("Aucun utilisateur n'a été trouvé.")
+
+    # Formulaire pour l'ajout d'un nouvel utilisateur
     st.subheader("Ajouter un nouvel utilisateur")
-    
     with st.form("add_user_form"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            new_username = st.text_input("Nom d'utilisateur")
-            new_password = st.text_input("Mot de passe", type="password")
-            new_email = st.text_input("Email")
-        
-        with col2:
-            new_phone = st.text_input("Téléphone")
-            new_role = st.selectbox("Rôle", ["topographe", "administrateur"])
-        
+        username = st.text_input("Nom d'utilisateur")
+        password = st.text_input("Mot de passe", type="password")
+        email = st.text_input("Email (optionnel)")
+        phone = st.text_input("Téléphone (optionnel)")
+        role = st.selectbox("Rôle", options=["topographe", "administrateur"])
+
         submit = st.form_submit_button("Ajouter l'utilisateur")
-        
+
         if submit:
-            if not new_username or not new_password:
+            if not username or not password:
                 st.error("Le nom d'utilisateur et le mot de passe sont obligatoires.")
-            elif new_email and not validate_email(new_email):
+            elif email and not validate_email(email):
                 st.error("Format d'email invalide.")
-            elif new_phone and not validate_phone(new_phone):
+            elif phone and not validate_phone(phone):
                 st.error("Format de numéro de téléphone invalide.")
             else:
-                success, message = add_user(new_username, new_password, new_email, new_phone, new_role)
+                success, message = add_user(username, password, email, phone, role)
                 if success:
                     st.success(message)
-                    st.rerun()  # Rafraîchir pour voir le nouvel utilisateur
+                    time.sleep(1)
+                    st.rerun()
                 else:
                     st.error(message)
-
-    # Section pour supprimer un utilisateur
-    st.subheader("Supprimer un utilisateur")
-    
-    user_to_delete = st.selectbox(
-        "Sélectionner un utilisateur à supprimer:",
-        options=users['id'].tolist(),
-        format_func=lambda x: f"{users[users['id'] == x]['username'].values[0]} ({users[users['id'] == x]['role'].values[0]})"
-    )
-    
-    if st.button("Supprimer l'utilisateur"):
-        if user_to_delete and st.session_state.username != users[users['id'] == user_to_delete]['username'].values[0]:
-            if st.session_state.get('confirm_user_delete', False):
-                success, message = delete_user(user_to_delete)
-                if success:
-                    st.success(message)
-                    st.session_state.confirm_user_delete = False
-                    st.rerun()  # Rafraîchir pour voir les changements
-                else:
-                    st.error(message)
-                st.session_state.confirm_user_delete = False
-            else:
-                st.warning("Êtes-vous sûr de vouloir supprimer cet utilisateur? Cette action est irréversible.")
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("Oui, supprimer", key="confirm_user_delete_yes"):
-                        st.session_state.confirm_user_delete = True
-                        st.rerun()
-                with col2:
-                    if st.button("Annuler", key="confirm_user_delete_no"):
-                        st.session_state.confirm_user_delete = False
-        elif user_to_delete and st.session_state.username == users[users['id'] == user_to_delete]['username'].values[0]:
-            st.error("Vous ne pouvez pas supprimer votre propre compte!")
 
 
 # Fonction pour afficher la page d'administration des données
 def show_admin_data_page():
-    st.title("Gestion des Données")
+    st.title("Administration - Gestion des Données")
 
+    # Vérification que l'utilisateur est connecté et est admin
     if not st.session_state.get("authenticated", False) or st.session_state.user["role"] != "administrateur":
-        st.warning("Accès non autorisé. Cette page nécessite des droits d'administrateur.")
+        st.error("Accès non autorisé. Cette page est réservée aux administrateurs.")
         return
 
-    # Section pour exporter les données
-    st.subheader("Exporter les données")
-    
-    export_type = st.radio("Type d'export", ["Levés", "Utilisateurs"], horizontal=True)
-    
-    if export_type == "Levés":
-        # Récupérer tous les levés
-        leves_df = get_all_leves()
-        
-        if not leves_df.empty:
-            # Formater la date pour l'export
-            leves_df['date'] = pd.to_datetime(leves_df['date']).dt.strftime('%d-%m-%Y')
-            
-            # Options d'export
-            export_format = st.radio("Format d'export", ["CSV", "Excel", "JSON"], horizontal=True)
-            
-            if st.button("Exporter les données"):
-                if export_format == "CSV":
-                    csv_data = leves_df.to_csv(index=False)
-                    st.download_button(
-                        label="Télécharger CSV",
-                        data=csv_data,
-                        file_name=f"leves_export_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
-                    )
-                elif export_format == "Excel":
-                    # Pour Excel, nous devons utiliser un buffer
-                    import io
-                    buffer = io.BytesIO()
-                    leves_df.to_excel(buffer, index=False)
-                    buffer.seek(0)
-                    
-                    st.download_button(
-                        label="Télécharger Excel",
-                        data=buffer,
-                        file_name=f"leves_export_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                        mime="application/vnd.ms-excel"
-                    )
-                elif export_format == "JSON":
-                    json_data = leves_df.to_json(orient="records")
-                    st.download_button(
-                        label="Télécharger JSON",
-                        data=json_data,
-                        file_name=f"leves_export_{datetime.now().strftime('%Y%m%d')}.json",
-                        mime="application/json"
-                    )
-        else:
-            st.info("Aucune donnée de levé disponible pour l'export.")
-    
-    elif export_type == "Utilisateurs":
-        # Récupérer tous les utilisateurs sans le mot de passe pour la sécurité
-        users_df = get_users()
-        
-        if not users_df.empty:
-            # Exclure le mot de passe de l'export
-            if 'password' in users_df.columns:
-                users_df = users_df.drop(columns=['password'])
-            
-            # Options d'export
-            export_format = st.radio("Format d'export", ["CSV", "Excel", "JSON"], horizontal=True)
-            
-            if st.button("Exporter les données"):
-                if export_format == "CSV":
-                    csv_data = users_df.to_csv(index=False)
-                    st.download_button(
-                        label="Télécharger CSV",
-                        data=csv_data,
-                        file_name=f"utilisateurs_export_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
-                    )
-                elif export_format == "Excel":
-                    # Pour Excel, nous devons utiliser un buffer
-                    import io
-                    buffer = io.BytesIO()
-                    users_df.to_excel(buffer, index=False)
-                    buffer.seek(0)
-                    
-                    st.download_button(
-                        label="Télécharger Excel",
-                        data=buffer,
-                        file_name=f"utilisateurs_export_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                        mime="application/vnd.ms-excel"
-                    )
-                elif export_format == "JSON":
-                    json_data = users_df.to_json(orient="records")
-                    st.download_button(
-                        label="Télécharger JSON",
-                        data=json_data,
-                        file_name=f"utilisateurs_export_{datetime.now().strftime('%Y%m%d')}.json",
-                        mime="application/json"
-                    )
-        else:
-            st.info("Aucune donnée utilisateur disponible pour l'export.")
+    # Fonctionnalité de sauvegarde et restauration (à implanter avec PostgreSQL)
+    st.subheader("Maintenance de la Base de Données")
 
-    # Section pour nettoyer la base de données (fonctionnalité avancée)
-    st.subheader("Maintenance de la base de données")
-    
-    if st.button("Optimiser la base de données"):
-        with get_connection() as conn:
-            if conn:
-                try:
-                    c = conn.cursor()
-                    # Exécuter VACUUM pour récupérer l'espace disque
-                    c.execute("VACUUM")
-                    # Exécuter ANALYZE pour mettre à jour les statistiques
-                    c.execute("ANALYZE")
-                    conn.commit()
-                    st.success("Base de données optimisée avec succès!")
-                except Exception as e:
-                    st.error(f"Erreur lors de l'optimisation: {str(e)}")
-    
-    # Bouton dangereux - avec confirmation
-    st.subheader("Zone Dangereuse", help="Ces actions sont irréversibles!")
-    
-    danger_action = st.selectbox(
-        "Action dangereuse",
-        ["Sélectionner une action", "Supprimer tous les levés", "Réinitialiser la base de données"]
-    )
-    
-    if danger_action != "Sélectionner une action":
-        st.warning(f"⚠️ Vous êtes sur le point de {danger_action.lower()}. Cette action est irréversible!")
-        
-        # Demander une confirmation avec un code spécifique
-        confirmation_code = "CONFIRMER"
-        user_confirmation = st.text_input(f"Pour {danger_action.lower()}, tapez '{confirmation_code}'")
-        
-        if st.button("Exécuter l'action dangereuse") and user_confirmation == confirmation_code:
-            with get_connection() as conn:
-                if conn:
-                    try:
-                        c = conn.cursor()
-                        
-                        if danger_action == "Supprimer tous les levés":
-                            c.execute("DELETE FROM leves")
-                            conn.commit()
-                            st.success("Tous les levés ont été supprimés.")
-                        
-                        elif danger_action == "Réinitialiser la base de données":
-                            # Supprimer les tables
-                            c.execute("DROP TABLE IF EXISTS leves")
-                            # Ne pas supprimer la table users pour garder les comptes
-                            conn.commit()
-                            # Recréer les tables
-                            init_db()
-                            st.success("La base de données a été réinitialisée.")
-                        
-                    except Exception as e:
-                        st.error(f"Erreur lors de l'exécution de l'action: {str(e)}")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.info("Pour PostgreSQL, la sauvegarde se fait via pg_dump. Consultez la documentation PostgreSQL.")
+
+    with col2:
+        st.info("La restauration de PostgreSQL se fait via pg_restore ou psql. Consultez la documentation PostgreSQL.")
+
+    # Afficher les statistiques globales
+    st.subheader("Statistiques Globales")
+
+    # Récupération des données
+    leves_df = get_all_leves()
+    users_df = get_users()
+
+    if not leves_df.empty and not users_df.empty:
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            st.metric("Nombre d'utilisateurs", len(users_df))
+
+        with col2:
+            st.metric("Nombre de levés", len(leves_df))
+
+        with col3:
+            st.metric("Quantité totale", f"{leves_df['quantite'].sum():,.0f}")
+
+        with col4:
+            # Calculer le nombre de villages uniques
+            nb_villages = leves_df['village'].nunique()
+            st.metric("Nombre de villages", nb_villages)
+    else:
+        st.info("Pas assez de données pour afficher les statistiques.")
+
+
+# Programme principal
 def main():
-    # Initialiser la base de données
+    # Initialisation de la base de données
     init_db()
-    
-    # Initialiser les variables de session si elles n'existent pas
+
+    # Initialisation des variables de session si elles n'existent pas
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
-    
+
     if "username" not in st.session_state:
         st.session_state.username = None
-        
+
+    if "user" not in st.session_state:
+        st.session_state.user = None
+
     if "show_login" not in st.session_state:
         st.session_state.show_login = False
-        
+
     if "show_registration" not in st.session_state:
         st.session_state.show_registration = False
-        
+
     if "current_page" not in st.session_state:
         st.session_state.current_page = "Dashboard"
-    
-    # Afficher la page de connexion si l'utilisateur n'est pas authentifié
-    if not st.session_state.authenticated:
-        # Titre de l'application
-        st.title("Système de Gestion des Levés Topographiques")
-        
-        # Message de bienvenue
-        st.write("""
-        Bienvenue dans le système de gestion des levés topographiques. 
-        Veuillez vous connecter pour accéder à toutes les fonctionnalités.
-        """)
-        
-        # Boutons pour afficher le formulaire de connexion ou d'inscription
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Se connecter"):
-                st.session_state.show_login = True
-                st.session_state.show_registration = False
-        with col2:
-            if st.button("S'inscrire"):
-                st.session_state.show_registration = True
-                st.session_state.show_login = False
-        
-        # Afficher le formulaire de connexion si le bouton est cliqué
-        if st.session_state.show_login:
-            show_login_form()
-        
-        # Afficher le formulaire d'inscription si le bouton est cliqué
-        if st.session_state.show_registration:
-            show_registration_form()
-        
-        # Afficher un aperçu limité du tableau de bord
-        st.subheader("Aperçu du tableau de bord")
-        st.write("Connectez-vous pour voir toutes les statistiques et fonctionnalités disponibles.")
-        
-        # Afficher quelques statistiques générales si disponibles
-        with st.spinner("Chargement des statistiques..."):
-            # Utilisation de get_connection() avec gestionnaire de contexte pour éviter les erreurs de connexion fermée
-            try:
-                with get_connection() as conn:
-                    if conn:
-                        # Récupérer le nombre total de levés
-                        c = conn.cursor()
-                        c.execute("SELECT COUNT(*) FROM leves")
-                        total_leves = c.fetchone()[0]
-                        
-                        # Récupérer le nombre de villages différents
-                        c.execute("SELECT COUNT(DISTINCT village) FROM leves")
-                        total_villages = c.fetchone()[0]
-                        
-                        # Afficher les statistiques
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.metric("Nombre total de levés", total_leves)
-                        with col2:
-                            st.metric("Nombre de villages", total_villages)
-                    else:
-                        st.error("Impossible de se connecter à la base de données.")
-            except Exception as e:
-                st.error(f"Erreur lors de la récupération des statistiques: {str(e)}")
-    else:
-        # L'utilisateur est connecté, afficher l'interface complète
-        
-        # Barre latérale avec menu de navigation
-        with st.sidebar:
-            st.title("Navigation")
-            
-            # Menu pour tous les utilisateurs
-            st.subheader("Général")
-            if st.button("Tableau de bord"):
-                st.session_state.current_page = "Dashboard"
-            if st.button("Saisie d'un nouveau levé"):
-                st.session_state.current_page = "Form"
-            if st.button("Suivi des levés"):
-                st.session_state.current_page = "Tracking"
-            if st.button("Mon compte"):
-                st.session_state.current_page = "Account"
-            
-            # Menu supplémentaire pour les administrateurs
-            if st.session_state.get("user", {}).get("role") == "administrateur":
-                st.subheader("Administration")
-                if st.button("Gestion des utilisateurs"):
-                    st.session_state.current_page = "AdminUsers"
-                if st.button("Gestion des données"):
-                    st.session_state.current_page = "AdminData"
-            
-            # Bouton de déconnexion
-            st.subheader("Session")
-            if st.button("Se déconnecter"):
-                st.session_state.authenticated = False
-                st.session_state.username = None
-                st.session_state.user = None
-                st.session_state.current_page = "Dashboard"
-                st.rerun()
-            
-            # Afficher l'utilisateur connecté
-            st.write(f"Connecté en tant que: **{st.session_state.username}**")
-        
-        # Afficher la page correspondante selon le choix de l'utilisateur
-        if st.session_state.current_page == "Dashboard":
-            show_dashboard()
-        elif st.session_state.current_page == "Form":
-            show_leve_form()
-        elif st.session_state.current_page == "Tracking":
-            show_leve_tracking()
-        elif st.session_state.current_page == "Account":
-            show_account_page()
-        elif st.session_state.current_page == "AdminUsers" and st.session_state.user["role"] == "administrateur":
-            show_admin_users_page()
-        elif st.session_state.current_page == "AdminData" and st.session_state.user["role"] == "administrateur":
-            show_admin_data_page()
-        else:
-            # Par défaut, afficher le tableau de bord
-            show_dashboard()
 
-# Point d'entrée principal
+    # Affichage de la page de connexion si demandé
+    if st.session_state.show_login:
+        show_login_page()
+        return
+
+    # Affichage de la page d'inscription si demandé
+    if st.session_state.show_registration:
+        show_registration_page()
+        return
+
+    # Affichage de la barre de navigation
+    current_page = show_navigation_sidebar()
+
+    # Affichage de la page correspondante
+    if current_page == "Dashboard":
+        show_dashboard()
+    elif current_page == "Saisie des Levés":
+        show_saisie_page()
+    elif current_page == "Suivi":
+        show_suivi_page()
+    elif current_page == "Mon Compte":
+        show_account_page()
+    elif current_page == "Admin Users":
+        show_admin_users_page()
+    elif current_page == "Admin Data":
+        show_admin_data_page()
+    else:
+        show_dashboard()  # Page par défaut
+
+
 if __name__ == "__main__":
     main()
