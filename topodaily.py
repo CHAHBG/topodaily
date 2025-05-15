@@ -60,6 +60,7 @@ def get_engine():
 
 
 # Fonction pour initialiser la base de données
+# Fonction pour initialiser la base de données
 def init_db():
     conn = get_connection()
     if not conn:
@@ -80,14 +81,17 @@ def init_db():
     )
     ''')
 
-    # Création de la table des levés topographiques
+    # Création de la table des levés topographiques avec les nouveaux champs
     c.execute('''
     CREATE TABLE IF NOT EXISTS leves (
         id SERIAL PRIMARY KEY,
         date DATE NOT NULL,
         village VARCHAR(100) NOT NULL,
+        region VARCHAR(100),
+        commune VARCHAR(100),
         type VARCHAR(50) NOT NULL,
         quantite INTEGER NOT NULL,
+        appareil VARCHAR(100),
         topographe VARCHAR(100) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
@@ -250,7 +254,8 @@ def get_users():
 
 
 # Fonction pour ajouter un levé topographique
-def add_leve(date, village, type_leve, quantite, topographe):
+# Fonction pour ajouter un levé topographique
+def add_leve(date, village, region, commune, type_leve, quantite, appareil, topographe):
     conn = get_connection()
     if not conn:
         return False
@@ -262,9 +267,9 @@ def add_leve(date, village, type_leve, quantite, topographe):
         quantite = int(quantite)
 
         c.execute('''
-        INSERT INTO leves (date, village, type, quantite, topographe)
-        VALUES (%s, %s, %s, %s, %s)
-        ''', (date, village, type_leve, quantite, topographe))
+        INSERT INTO leves (date, village, region, commune, type, quantite, appareil, topographe)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (date, village, region, commune, type_leve, quantite, appareil, topographe))
 
         conn.commit()
         success = True
@@ -293,7 +298,9 @@ def get_all_leves():
 
 
 # Fonction pour obtenir les levés filtrés
-def get_filtered_leves(start_date=None, end_date=None, village=None, type_leve=None, topographe=None):
+# Fonction pour obtenir les levés filtrés
+def get_filtered_leves(start_date=None, end_date=None, village=None, region=None, commune=None, type_leve=None,
+                       appareil=None, topographe=None):
     engine = get_engine()
     if not engine:
         return pd.DataFrame()
@@ -314,9 +321,21 @@ def get_filtered_leves(start_date=None, end_date=None, village=None, type_leve=N
         query += " AND village = %(village)s"
         params['village'] = village
 
+    if region:
+        query += " AND region = %(region)s"
+        params['region'] = region
+
+    if commune:
+        query += " AND commune = %(commune)s"
+        params['commune'] = commune
+
     if type_leve:
         query += " AND type = %(type_leve)s"
         params['type_leve'] = type_leve
+
+    if appareil:
+        query += " AND appareil = %(appareil)s"
+        params['appareil'] = appareil
 
     if topographe:
         query += " AND topographe = %(topographe)s"
@@ -348,29 +367,45 @@ def get_leves_by_topographe(topographe):
 
 
 # Fonction pour obtenir les données uniques pour les filtres
+# Fonction pour obtenir les données uniques pour les filtres
 def get_filter_options():
     engine = get_engine()
     if not engine:
-        return {"villages": [], "types": [], "topographes": []}
+        return {"villages": [], "regions": [], "communes": [], "types": [], "appareils": [], "topographes": []}
 
     try:
         # Obtenir les villages uniques
         villages = pd.read_sql_query("SELECT DISTINCT village FROM leves ORDER BY village", engine)
 
+        # Obtenir les régions uniques
+        regions = pd.read_sql_query("SELECT DISTINCT region FROM leves WHERE region IS NOT NULL ORDER BY region",
+                                    engine)
+
+        # Obtenir les communes uniques
+        communes = pd.read_sql_query("SELECT DISTINCT commune FROM leves WHERE commune IS NOT NULL ORDER BY commune",
+                                     engine)
+
         # Obtenir les types de levés uniques
         types = pd.read_sql_query("SELECT DISTINCT type FROM leves ORDER BY type", engine)
+
+        # Obtenir les appareils uniques
+        appareils = pd.read_sql_query(
+            "SELECT DISTINCT appareil FROM leves WHERE appareil IS NOT NULL ORDER BY appareil", engine)
 
         # Obtenir les topographes uniques
         topographes = pd.read_sql_query("SELECT DISTINCT topographe FROM leves ORDER BY topographe", engine)
 
         return {
             "villages": villages["village"].tolist() if not villages.empty else [],
+            "regions": regions["region"].tolist() if not regions.empty else [],
+            "communes": communes["commune"].tolist() if not communes.empty else [],
             "types": types["type"].tolist() if not types.empty else [],
+            "appareils": appareils["appareil"].tolist() if not appareils.empty else [],
             "topographes": topographes["topographe"].tolist() if not topographes.empty else []
         }
     except Exception as e:
         st.error(f"Erreur lors de la récupération des options de filtre: {str(e)}")
-        return {"villages": [], "types": [], "topographes": []}
+        return {"villages": [], "regions": [], "communes": [], "types": [], "appareils": [], "topographes": []}
 
 
 # Fonction pour supprimer un levé
@@ -392,6 +427,52 @@ def delete_leve(leve_id):
 
     conn.close()
     return success
+
+
+# Fonction pour vérifier si un utilisateur est propriétaire d'un levé
+def is_leve_owner(leve_id, username):
+    conn = get_connection()
+    if not conn:
+        return False
+
+    c = conn.cursor()
+    c.execute("SELECT topographe FROM leves WHERE id=%s", (leve_id,))
+    result = c.fetchone()
+    conn.close()
+
+    if result and result[0] == username:
+        return True
+    return False
+
+
+# Fonction pour supprimer un levé avec vérification du propriétaire
+def delete_user_leve(leve_id, username):
+    # Vérifier si l'utilisateur est le propriétaire du levé
+    if not is_leve_owner(leve_id, username):
+        return False, "Vous n'êtes pas autorisé à supprimer ce levé."
+
+    conn = get_connection()
+    if not conn:
+        return False, "Erreur de connexion à la base de données"
+
+    c = conn.cursor()
+
+    try:
+        c.execute("DELETE FROM leves WHERE id=%s AND topographe=%s", (leve_id, username))
+        if c.rowcount == 0:
+            conn.close()
+            return False, "Levé non trouvé ou vous n'êtes pas autorisé à le supprimer."
+
+        conn.commit()
+        success = True
+        message = "Levé supprimé avec succès!"
+    except Exception as e:
+        conn.rollback()
+        success = False
+        message = f"Erreur lors de la suppression du levé: {str(e)}"
+
+    conn.close()
+    return success, message
 
 
 # Fonction pour valider le format de l'email
@@ -544,6 +625,7 @@ def show_navigation_sidebar():
 
 
 # Fonction pour afficher le dashboard
+# Fonction pour afficher le dashboard
 def show_dashboard():
     st.title("Dashboard des Levés Topographiques")
 
@@ -556,55 +638,75 @@ def show_dashboard():
 
         # Filtres interactifs pour le dashboard
         with st.expander("Filtres", expanded=False):
+            # Filtres de dates
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input("Date de début", datetime.now() - timedelta(days=30))
+            with col2:
+                end_date = st.date_input("Date de fin", datetime.now())
+
+            # Appliquer filtre de date
+            mask_date = (leves_df['date'] >= pd.Timestamp(start_date)) & (leves_df['date'] <= pd.Timestamp(end_date))
+            leves_filtered = leves_df[mask_date]
+
             col1, col2, col3 = st.columns(3)
 
             with col1:
-                # Filtre par période
-                periode = st.selectbox(
-                    "Période",
-                    ["Tous", "Dernier mois", "Dernière semaine", "Dernier trimestre", "Dernière année"],
-                    index=0
-                )
+                # Filtre par région
+                filter_options = get_filter_options()
+                region_options = ["Toutes"] + filter_options["regions"]
+                region_filter = st.selectbox("Région", options=region_options, index=0)
 
-                if periode == "Dernier mois":
-                    date_min = datetime.now() - timedelta(days=30)
-                    leves_df = leves_df[leves_df['date'] >= date_min]
-                elif periode == "Dernière semaine":
-                    date_min = datetime.now() - timedelta(days=7)
-                    leves_df = leves_df[leves_df['date'] >= date_min]
-                elif periode == "Dernier trimestre":
-                    date_min = datetime.now() - timedelta(days=90)
-                    leves_df = leves_df[leves_df['date'] >= date_min]
-                elif periode == "Dernière année":
-                    date_min = datetime.now() - timedelta(days=365)
-                    leves_df = leves_df[leves_df['date'] >= date_min]
+                if region_filter != "Toutes" and not leves_filtered.empty:
+                    leves_filtered = leves_filtered[leves_filtered['region'] == region_filter]
 
             with col2:
+                # Filtre par commune
+                commune_options = ["Toutes"] + filter_options["communes"]
+                commune_filter = st.selectbox("Commune", options=commune_options, index=0)
+
+                if commune_filter != "Toutes" and not leves_filtered.empty:
+                    leves_filtered = leves_filtered[leves_filtered['commune'] == commune_filter]
+
+            with col3:
                 # Filtre par type de levé
-                filter_options = get_filter_options()
                 type_options = ["Tous"] + filter_options["types"]
                 type_filter = st.selectbox("Type de levé", options=type_options, index=0)
 
-                if type_filter != "Tous":
-                    leves_df = leves_df[leves_df['type'] == type_filter]
+                if type_filter != "Tous" and not leves_filtered.empty:
+                    leves_filtered = leves_filtered[leves_filtered['type'] == type_filter]
 
-            with col3:
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # Filtre par appareil
+                appareil_options = ["Tous"] + filter_options["appareils"]
+                appareil_filter = st.selectbox("Appareil", options=appareil_options, index=0)
+
+                if appareil_filter != "Tous" and not leves_filtered.empty:
+                    leves_filtered = leves_filtered[leves_filtered['appareil'] == appareil_filter]
+
+            with col2:
                 # Filtre par village
                 village_options = ["Tous"] + filter_options["villages"]
                 village_filter = st.selectbox("Village", options=village_options, index=0)
 
-                if village_filter != "Tous":
-                    leves_df = leves_df[leves_df['village'] == village_filter]
+                if village_filter != "Tous" and not leves_filtered.empty:
+                    leves_filtered = leves_filtered[leves_filtered['village'] == village_filter]
 
         st.subheader("Aperçu des statistiques globales")
+
+        if leves_filtered.empty:
+            st.warning("Aucune donnée ne correspond aux filtres sélectionnés.")
+            leves_filtered = leves_df  # Réinitialiser pour afficher toutes les données
 
         col1, col2 = st.columns(2)
 
         with col1:
             # Statistiques par type de levé avec Plotly
             st.subheader("Levés par Type")
-            if not leves_df.empty:
-                type_counts = leves_df['type'].value_counts().reset_index()
+            if not leves_filtered.empty:
+                type_counts = leves_filtered['type'].value_counts().reset_index()
                 type_counts.columns = ['Type', 'Nombre']
 
                 fig = px.pie(
@@ -622,8 +724,8 @@ def show_dashboard():
         with col2:
             # Statistiques par village avec Plotly
             st.subheader("Levés par Village")
-            if not leves_df.empty:
-                village_counts = leves_df['village'].value_counts().reset_index().head(10)
+            if not leves_filtered.empty:
+                village_counts = leves_filtered['village'].value_counts().reset_index().head(10)
                 village_counts.columns = ['Village', 'Nombre']
 
                 fig = px.bar(
@@ -644,8 +746,8 @@ def show_dashboard():
         with col1:
             # Évolution temporelle des levés avec Plotly
             st.subheader("Évolution des Levés dans le Temps")
-            if not leves_df.empty:
-                time_series = leves_df.groupby(pd.Grouper(key='date', freq='D')).size().reset_index()
+            if not leves_filtered.empty:
+                time_series = leves_filtered.groupby(pd.Grouper(key='date', freq='D')).size().reset_index()
                 time_series.columns = ['Date', 'Nombre']
 
                 fig = px.line(
@@ -663,15 +765,15 @@ def show_dashboard():
         with col2:
             # Top des topographes avec Plotly
             st.subheader("Top des Topographes")
-            if not leves_df.empty:
-                topo_counts = leves_df['topographe'].value_counts().reset_index().head(10)
+            if not leves_filtered.empty:
+                topo_counts = leves_filtered['topographe'].value_counts().reset_index().head(10)
                 topo_counts.columns = ['Topographe', 'Nombre']
 
                 fig = px.bar(
                     topo_counts,
                     x='Topographe',
                     y='Nombre',
-                    title='Top 10 des topographes',
+                    title='Top 10 des topographes par nombre de levés',
                     color='Nombre',
                     color_continuous_scale='Viridis'
                 )
@@ -680,14 +782,50 @@ def show_dashboard():
             else:
                 st.info("Aucune donnée disponible pour ce filtre.")
 
+        # Graphiques supplémentaires
+        if not leves_filtered.empty and 'region' in leves_filtered.columns and leves_filtered['region'].notna().any():
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.subheader("Levés par Région")
+                region_counts = leves_filtered['region'].value_counts().reset_index()
+                region_counts.columns = ['Région', 'Nombre']
+
+                fig = px.pie(
+                    region_counts,
+                    values='Nombre',
+                    names='Région',
+                    title='Répartition des levés par région',
+                    hole=0.3
+                )
+                fig.update_traces(textposition='inside', textinfo='percent+label')
+                st.plotly_chart(fig, use_container_width=True)
+
+            with col2:
+                if 'appareil' in leves_filtered.columns and leves_filtered['appareil'].notna().any():
+                    st.subheader("Levés par Appareil")
+                    appareil_counts = leves_filtered['appareil'].value_counts().reset_index()
+                    appareil_counts.columns = ['Appareil', 'Nombre']
+
+                    fig = px.bar(
+                        appareil_counts,
+                        x='Appareil',
+                        y='Nombre',
+                        title='Répartition des levés par appareil',
+                        color='Nombre',
+                        color_continuous_scale='Viridis'
+                    )
+                    fig.update_layout(xaxis={'categoryorder': 'total descending'})
+                    st.plotly_chart(fig, use_container_width=True)
+
         # Afficher la somme totale des quantités
         st.subheader("Statistiques Globales")
-        total_quantite = leves_df['quantite'].sum()
-        moyenne_quantite = leves_df['quantite'].mean()
+        total_quantite = leves_filtered['quantite'].sum()
+        moyenne_quantite = leves_filtered['quantite'].mean()
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Nombre Total de Levés", len(leves_df))
+            st.metric("Nombre Total de Levés", len(leves_filtered))
         with col2:
             st.metric("Quantité Totale", f"{total_quantite:,.0f}")
         with col3:
@@ -724,6 +862,7 @@ def show_dashboard():
 
 
 # Fonction pour afficher la page de saisie des levés
+# Fonction pour afficher la page de saisie des levés
 def show_saisie_page():
     st.title("Saisie des Levés Topographiques")
 
@@ -753,7 +892,11 @@ def show_saisie_page():
         st.markdown("Pas encore de compte? Cliquez sur 'S'inscrire' dans le menu latéral.")
         return
 
-    with st.form("leve_form"):
+    # Utilisons une clé pour forcer la réinitialisation du formulaire
+    if "form_key" not in st.session_state:
+        st.session_state.form_key = 0
+
+    with st.form("leve_form", key=f"form_{st.session_state.form_key}"):
         # La date du jour est préremplie
         date = st.date_input("Date du levé", datetime.now())
 
@@ -762,7 +905,13 @@ def show_saisie_page():
         st.write(f"Topographe: **{topographe}**")
 
         # Autres champs du formulaire
-        village = st.text_input("Village", placeholder="Nom du village")
+        col1, col2 = st.columns(2)
+        with col1:
+            village = st.text_input("Village", placeholder="Nom du village")
+            region = st.text_input("Région", placeholder="Nom de la région")
+        with col2:
+            commune = st.text_input("Commune", placeholder="Nom de la commune")
+            appareil = st.text_input("Appareil utilisé", placeholder="Modèle de l'appareil")
 
         # Types de levés prédéfinis
         type_options = ["Batîments", "Champs", "Edifice publique", "Autre"]
@@ -782,14 +931,17 @@ def show_saisie_page():
                 date_str = date.strftime("%Y-%m-%d")
 
                 # Enregistrement du levé
-                if add_leve(date_str, village, type_leve, quantite, topographe):
+                if add_leve(date_str, village, region, commune, type_leve, quantite, appareil, topographe):
                     st.success("Levé enregistré avec succès!")
+                    # Incrémenter la clé pour réinitialiser le formulaire
+                    st.session_state.form_key += 1
                     time.sleep(1)
                     st.rerun()
                 else:
                     st.error("Erreur lors de l'enregistrement du levé.")
 
 
+# Fonction pour afficher la page de suivi
 # Fonction pour afficher la page de suivi
 def show_suivi_page():
     st.title("Suivi des Levés Topographiques")
@@ -828,6 +980,7 @@ def show_suivi_page():
         col1, col2 = st.columns(2)
         with col1:
             start_date = st.date_input("Date de début", datetime.now() - timedelta(days=30))
+        with col2:
             end_date = st.date_input("Date de fin", datetime.now())
 
         col1, col2, col3 = st.columns(3)
@@ -836,12 +989,24 @@ def show_suivi_page():
             village = st.selectbox("Village", options=village_options)
             village = None if village == "Tous" else village
 
+            region_options = ["Toutes"] + filter_options["regions"]
+            region = st.selectbox("Région", options=region_options)
+            region = None if region == "Toutes" else region
+
         with col2:
+            commune_options = ["Toutes"] + filter_options["communes"]
+            commune = st.selectbox("Commune", options=commune_options)
+            commune = None if commune == "Toutes" else commune
+
             type_options = ["Tous"] + filter_options["types"]
             type_leve = st.selectbox("Type de levé", options=type_options)
             type_leve = None if type_leve == "Tous" else type_leve
 
         with col3:
+            appareil_options = ["Tous"] + filter_options["appareils"]
+            appareil = st.selectbox("Appareil", options=appareil_options)
+            appareil = None if appareil == "Tous" else appareil
+
             # Pour les administrateurs, afficher tous les topographes
             # Pour les autres, voir uniquement ses propres levés
             if st.session_state.user["role"] == "administrateur":
@@ -853,7 +1018,7 @@ def show_suivi_page():
                 st.write(f"Topographe: **{topographe}**")
 
     # Récupération des levés filtrés
-    leves_df = get_filtered_leves(start_date, end_date, village, type_leve, topographe)
+    leves_df = get_filtered_leves(start_date, end_date, village, region, commune, type_leve, appareil, topographe)
 
     # Affichage des données
     if not leves_df.empty:
@@ -862,8 +1027,11 @@ def show_suivi_page():
             'id': 'ID',
             'date': 'Date',
             'village': 'Village',
+            'region': 'Région',
+            'commune': 'Commune',
             'type': 'Type',
             'quantite': 'Quantité',
+            'appareil': 'Appareil',
             'topographe': 'Topographe',
             'created_at': 'Date de création'
         })
@@ -873,7 +1041,7 @@ def show_suivi_page():
 
         # Affichage des données avec une mise en forme améliorée
         st.dataframe(
-            leves_df[['ID', 'Date', 'Village', 'Type', 'Quantité', 'Topographe']],
+            leves_df[['ID', 'Date', 'Village', 'Région', 'Commune', 'Type', 'Quantité', 'Appareil', 'Topographe']],
             use_container_width=True,
             height=400
         )
@@ -898,9 +1066,26 @@ def show_suivi_page():
         ):
             st.success("Export réussi!")
 
+        # Pour les utilisateurs normaux, possibilité de supprimer ses propres levés
+        if st.session_state.user["role"] != "administrateur":
+            st.subheader("Gestion de mes levés")
+
+            with st.form("delete_own_leve_form"):
+                leve_id = st.number_input("ID du levé à supprimer", min_value=1, step=1)
+                delete_submit = st.form_submit_button("Supprimer mon levé")
+
+                if delete_submit:
+                    success, message = delete_user_leve(leve_id, st.session_state.username)
+                    if success:
+                        st.success(message)
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(message)
+
         # Pour les administrateurs, possibilité de supprimer des levés
         if st.session_state.user["role"] == "administrateur":
-            st.subheader("Gestion des Levés")
+            st.subheader("Gestion des Levés (Admin)")
 
             with st.form("delete_leve_form"):
                 leve_id = st.number_input("ID du levé à supprimer", min_value=1, step=1)
