@@ -896,7 +896,7 @@ def show_saisie_page():
     if "form_key" not in st.session_state:
         st.session_state.form_key = 0
 
-    with st.form("leve_form", key=f"form_{st.session_state.form_key}"):
+    with st.form(key=f"leve_form_{st.session_state.form_key}"):
         # La date du jour est préremplie
         date = st.date_input("Date du levé", datetime.now())
 
