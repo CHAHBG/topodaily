@@ -1008,7 +1008,6 @@ def show_dashboard():
 
 
 # Fonction pour afficher la page de saisie des levés
-# Fonction pour afficher la page de saisie des levés
 def show_saisie_page():
     st.title("Saisie des Levés Topographiques")
 
@@ -1018,8 +1017,14 @@ def show_saisie_page():
     if "form_submitted" not in st.session_state:
         st.session_state.form_submitted = False
 
+    # Bouton pour aller à la page d'inscription visible seulement si non authentifié
+    if not st.session_state.get("authenticated", False):
+        if st.button("S'inscrire", key="signup_redirect"):
+            st.session_state.page = "signup"
+            st.rerun()
+
     # Gestion des messages de succès après soumission
-    if st.session_state.form_submitted:
+    if st.session_state.get("form_submitted", False):
         st.success("Levé enregistré avec succès!")
         st.session_state.form_submitted = False
 
@@ -1028,8 +1033,28 @@ def show_saisie_page():
         show_login_form()
         return
 
+    # Bandeau d'information utilisateur
+    st.info(f"Connecté en tant que: {st.session_state.username}")
+
+    # Boutons d'action
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if st.button("Nouveau levé", key="new_leve_btn"):
+            # Réinitialiser le formulaire
+            st.session_state.form_key += 1
+            st.session_state.cached_form_data = {
+                "village": "", "region": "", "commune": "", "appareil": "",
+                "type_leve": 0, "quantite": 1
+            }
+            st.rerun()
+    with col2:
+        if st.button("Voir mes levés", key="view_leves_btn"):
+            st.session_state.page = "view_leves"
+            st.rerun()
+
     # Affichage du formulaire des levés topographiques
     with st.form(key=f"leve_form_{st.session_state.form_key}"):
+        st.subheader("Nouveau levé topographique")
         # La date du jour est préremplie
         date = st.date_input("Date du levé", datetime.now())
 
@@ -1039,33 +1064,44 @@ def show_saisie_page():
 
         # Disposition en colonnes
         col1, col2 = st.columns(2)
-        with col1:
-            village = st.text_input("Village", placeholder="Nom du village")
-            region = st.text_input("Région", placeholder="Nom de la région")
-        with col2:
-            commune = st.text_input("Commune", placeholder="Nom de la commune")
-            appareil = st.text_input("Appareil utilisé", placeholder="Modèle de l'appareil")
 
-        # Mémorisation des valeurs pour éviter de les perdre
+        # Initialisation du cache si nécessaire
         if "cached_form_data" not in st.session_state:
             st.session_state.cached_form_data = {
                 "village": "", "region": "", "commune": "", "appareil": "",
                 "type_leve": 0, "quantite": 1
             }
 
+        # Utilisation des valeurs en cache ou défaut
+        with col1:
+            village = st.text_input("Village",
+                                    value=st.session_state.cached_form_data.get("village", ""),
+                                    placeholder="Nom du village")
+            region = st.text_input("Région",
+                                   value=st.session_state.cached_form_data.get("region", ""),
+                                   placeholder="Nom de la région")
+        with col2:
+            commune = st.text_input("Commune",
+                                    value=st.session_state.cached_form_data.get("commune", ""),
+                                    placeholder="Nom de la commune")
+            appareil = st.text_input("Appareil utilisé",
+                                     value=st.session_state.cached_form_data.get("appareil", ""),
+                                     placeholder="Modèle de l'appareil")
+
         # Types de levés prédéfinis avec valeur par défaut
         type_options = ["Batîments", "Champs", "Edifice publique", "Autre"]
+        type_index = st.session_state.cached_form_data.get("type_leve", 0)
         type_leve = st.selectbox(
             "Type de levé",
             options=type_options,
-            index=st.session_state.cached_form_data["type_leve"]
+            index=min(type_index, len(type_options) - 1)  # Éviter l'index out of range
         )
 
         # Quantité avec valeur minimale et par défaut
         quantite = st.number_input(
             "Quantité",
             min_value=1,
-            value=st.session_state.cached_form_data["quantite"],
+            value=st.session_state.cached_form_data.get("quantite", 1),
             step=1
         )
 
@@ -1088,7 +1124,8 @@ def show_saisie_page():
                 date_str = date.strftime("%Y-%m-%d")
 
                 # Enregistrement du levé
-                if add_leve(date_str, village, region, commune, type_leve, quantite, appareil, topographe):
+                success = add_leve(date_str, village, region, commune, type_leve, quantite, appareil, topographe)
+                if success:
                     # Marquer comme soumis pour afficher le message de succès
                     st.session_state.form_submitted = True
                     # Réinitialiser le cache
@@ -1101,6 +1138,42 @@ def show_saisie_page():
                     st.rerun()
                 else:
                     st.error("Erreur lors de l'enregistrement du levé.")
+
+
+def show_login_form():
+    """Fonction séparée pour afficher le formulaire de connexion"""
+    st.warning("Vous devez être connecté pour saisir des levés.")
+
+    # Afficher le formulaire de connexion
+    with st.form("login_form_embed", clear_on_submit=True):
+        st.subheader("Connexion")
+        username = st.text_input("Nom d'utilisateur", key="login_username")
+        password = st.text_input("Mot de passe", type="password", key="login_password")
+        submit_col, info_col = st.columns([1, 2])
+        with submit_col:
+            submit = st.form_submit_button("Se connecter")
+
+        if submit:
+            # Simuler un temps de chargement pour indiquer une action
+            with st.spinner("Vérification..."):
+                user = verify_user(username, password)
+                if user:
+                    st.session_state.user = user
+                    st.session_state.username = username
+                    st.session_state.authenticated = True
+                    st.success(f"Connexion réussie! Bienvenue {username}!")
+                    # Petit délai pour voir le message
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error("Nom d'utilisateur ou mot de passe incorrect.")
+
+    st.markdown("---")
+
+    # Bouton d'inscription interactif
+    if st.button("Créer un nouveau compte", key="signup_btn"):
+        st.session_state.page = "signup"
+        st.rerun()
 
 
 def show_login_form():
