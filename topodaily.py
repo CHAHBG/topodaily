@@ -32,7 +32,6 @@ DB_PASSWORD = os.environ.get('DB_PASSWORD', 'password')
 
 
 # Fonction pour se connecter à PostgreSQL
-@st.cache_resource
 def get_connection():
     try:
         conn = psycopg2.connect(
