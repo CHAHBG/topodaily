@@ -622,19 +622,20 @@ def show_navigation_sidebar():
         col1, col2 = st.sidebar.columns(2)
         with col1:
             if st.button("Se connecter"):
-                st.session_state.show_login_page = True
-                st.session_state.show_registration_page = False
+                st.session_state.app_state["show_login"] = True
+                st.session_state.app_state["show_registration"] = False
                 st.rerun()
         with col2:
-            if st.button("S'inscrire"):
-                st.session_state.show_login_page = False
-                st.session_state.show_registration_page = True
+            if st.sidebar.button("S'inscrire"):
+                st.session_state.app_state["show_login"] = False
+                st.session_state.app_state["show_registration"] = True
                 st.rerun()
 
     if app_state["current_page"] != page:
         app_state["current_page"] = page
 
     return page
+
 
 
 # Fonction pour afficher le dashboard
@@ -986,8 +987,8 @@ def show_dashboard():
                     st.session_state.current_page = "Saisie des Levés"
                     st.rerun()
                 else:
-                    st.session_state.show_login_page = True
-                    st.session_state.show_registration_page = False
+                    st.session_state.app_state["show_login"] = True
+                    st.session_state.app_state["show_registration"] = False
                     st.warning("Veuillez vous connecter pour saisir des levés.")
                     st.rerun()
     else:
@@ -1001,8 +1002,8 @@ def show_dashboard():
                     st.session_state.current_page = "Saisie des Levés"
                     st.rerun()
                 else:
-                    st.session_state.show_login_page = True
-                    st.session_state.show_registration_page = False
+                    st.session_state.app_state["show_login"] = True
+                    st.session_state.app_state["show_registration"] = False
                     st.warning("Veuillez vous connecter pour saisir des levés.")
                     st.rerun()
 
@@ -1591,13 +1592,14 @@ def main():
         }
 
     app_state = st.session_state.app_state
+
     # Affichage de la page de connexion si demandé
-    if app_state["show_login"]:
+    if st.session_state.app_state["show_login"]:
         show_login_page()
         return
 
     # Affichage de la page d'inscription si demandé
-    if app_state["show_registration"]:
+    if st.session_state.app_state["show_registration"]:
         show_registration_page()
         return
 
