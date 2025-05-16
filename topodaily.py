@@ -622,13 +622,13 @@ def show_navigation_sidebar():
         col1, col2 = st.sidebar.columns(2)
         with col1:
             if st.button("Se connecter"):
-                st.session_state.show_login = True
-                st.session_state.show_registration = False
+                st.session_state.show_login_page = True
+                st.session_state.show_registration_page = False
                 st.rerun()
         with col2:
             if st.button("S'inscrire"):
-                st.session_state.show_login = False
-                st.session_state.show_registration = True
+                st.session_state.show_login_page = False
+                st.session_state.show_registration_page = True
                 st.rerun()
 
     if app_state["current_page"] != page:
@@ -986,8 +986,8 @@ def show_dashboard():
                     st.session_state.current_page = "Saisie des Levés"
                     st.rerun()
                 else:
-                    st.session_state.show_login = True
-                    st.session_state.show_registration = False
+                    st.session_state.show_login_page = True
+                    st.session_state.show_registration_page = False
                     st.warning("Veuillez vous connecter pour saisir des levés.")
                     st.rerun()
     else:
@@ -1001,8 +1001,8 @@ def show_dashboard():
                     st.session_state.current_page = "Saisie des Levés"
                     st.rerun()
                 else:
-                    st.session_state.show_login = True
-                    st.session_state.show_registration = False
+                    st.session_state.show_login_page = True
+                    st.session_state.show_registration_page = False
                     st.warning("Veuillez vous connecter pour saisir des levés.")
                     st.rerun()
 
