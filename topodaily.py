@@ -32,6 +32,7 @@ DB_PASSWORD = os.environ.get('DB_PASSWORD', 'password')
 
 
 # Fonction pour se connecter à PostgreSQL
+@st.cache_resource
 def get_connection():
     try:
         conn = psycopg2.connect(
@@ -48,6 +49,7 @@ def get_connection():
 
 
 # Fonction pour obtenir un moteur SQLAlchemy pour pandas
+@st.cache_resource
 def get_engine():
     try:
         # Encoder le mot de passe pour gérer les caractères spéciaux
@@ -61,6 +63,7 @@ def get_engine():
 
 # Fonction pour initialiser la base de données
 # Fonction pour initialiser la base de données
+@st.cache_resource
 def init_db():
     conn = get_connection()
     if not conn:
@@ -283,6 +286,7 @@ def add_leve(date, village, region, commune, type_leve, quantite, appareil, topo
 
 
 # Fonction pour obtenir tous les levés
+@st.cache_data(ttl=60)  # Cache valide pendant 1 minute
 def get_all_leves():
     engine = get_engine()
     if not engine:
@@ -366,8 +370,9 @@ def get_leves_by_topographe(topographe):
         return pd.DataFrame()
 
 
+
 # Fonction pour obtenir les données uniques pour les filtres
-# Fonction pour obtenir les données uniques pour les filtres
+@st.cache_data(ttl=300)
 def get_filter_options():
     engine = get_engine()
     if not engine:
@@ -500,12 +505,11 @@ def show_login_page():
         if submit:
             user = verify_user(username, password)
             if user:
-                st.session_state.user = user
-                st.session_state.username = username
-                st.session_state.authenticated = True
-                st.session_state.show_login = False  # Masquer page login
-                st.session_state.show_registration = False  # Masquer page inscription
-                st.session_state.current_page = "Mon Compte"  # Redirection vers page compte ou autre
+                st.session_state.app_state["user"] = user
+                st.session_state.app_state["username"] = username
+                st.session_state.app_state["authenticated"] = True
+                st.session_state.app_state["show_login"] = False
+                st.session_state.app_state["current_page"] = "Mon Compte"
                 st.success(f"Connexion réussie! Bienvenue {username}!")
                 st.rerun()
             else:
@@ -515,8 +519,8 @@ def show_login_page():
     st.markdown("Pas encore de compte? [Créer un compte](#creer-un-compte)")
 
     if st.button("Créer un compte"):
-        st.session_state.show_login = False
-        st.session_state.show_registration = True
+        st.session_state.app_state["show_login"] = False
+        st.session_state.app_state["show_registration"] = True
         st.rerun()
 
 
@@ -546,7 +550,6 @@ def show_registration_page():
                 success, message = add_user(username, password, email, phone)
                 if success:
                     st.success(message)
-                    time.sleep(1)
                     st.session_state.show_registration = False
                     st.rerun()
                 else:
@@ -562,18 +565,23 @@ def show_navigation_sidebar():
     st.sidebar.title("Navigation")
 
     # Si l'utilisateur est connecté
-    if st.session_state.get("authenticated", False):
-        user_role = st.session_state.user["role"]
-        username = st.session_state.username
+    app_state = st.session_state.app_state
+
+    if app_state["authenticated"]:
+        user_role = app_state["user"]["role"]
+        username = app_state["username"]
 
         st.sidebar.write(f"Connecté en tant que: **{username}**")
         st.sidebar.write(f"Rôle: **{user_role}**")
+
+        # Conserver le choix de page courant
+        current_idx = ["Dashboard", "Saisie des Levés", "Suivi", "Mon Compte"].index(app_state["current_page"]) if app_state["current_page"] in ["Dashboard", "Saisie des Levés", "Suivi", "Mon Compte"] else 0
 
         # Pages accessibles à tous les utilisateurs connectés
         page = st.sidebar.radio(
             "Pages",
             ["Dashboard", "Saisie des Levés", "Suivi", "Mon Compte"],
-            index=0
+            index=current_idx
         )
 
         # Menu d'administration pour l'admin
@@ -590,12 +598,14 @@ def show_navigation_sidebar():
 
         # Bouton déconnexion
         if st.sidebar.button("Déconnexion"):
-            st.session_state.authenticated = False
-            st.session_state.username = None
-            st.session_state.user = None
-            st.session_state.current_page = "Dashboard"
-            st.session_state.show_login = False
-            st.session_state.show_registration = False
+            st.session_state.app_state = {
+                "authenticated": False,
+                "username": None,
+                "user": None,
+                "current_page": "Dashboard",
+                "show_login": False,
+                "show_registration": False
+            }
             st.rerun()
 
     else:
@@ -621,16 +631,22 @@ def show_navigation_sidebar():
                 st.session_state.show_registration = True
                 st.rerun()
 
+    if app_state["current_page"] != page:
+        app_state["current_page"] = page
+
     return page
 
 
-# Fonction pour afficher le dashboard
 # Fonction pour afficher le dashboard
 def show_dashboard():
     st.title("Dashboard des Levés Topographiques")
 
     # On récupère tous les levés pour les statistiques globales
-    leves_df = get_all_leves()
+    @st.cache_data(ttl=600)  # Mise en cache des données pour 10 minutes
+    def get_cached_leves():
+        return get_all_leves()
+
+    leves_df = get_cached_leves()
 
     if not leves_df.empty:
         # Convertir la colonne date en datetime pour les graphiques
@@ -694,59 +710,164 @@ def show_dashboard():
                 if village_filter != "Tous" and not leves_filtered.empty:
                     leves_filtered = leves_filtered[leves_filtered['village'] == village_filter]
 
-        st.subheader("Aperçu des statistiques globales")
-
+        # Vérification des données filtrées
         if leves_filtered.empty:
             st.warning("Aucune donnée ne correspond aux filtres sélectionnés.")
             leves_filtered = leves_df  # Réinitialiser pour afficher toutes les données
 
-        col1, col2 = st.columns(2)
+        # Organisation en onglets
+        tabs = st.tabs(["Statistiques Générales", "Répartition Géographique", "Évolution Temporelle", "Performance"])
 
-        with col1:
-            # Statistiques par type de levé avec Plotly
-            st.subheader("Levés par Type")
-            if not leves_filtered.empty:
-                type_counts = leves_filtered['type'].value_counts().reset_index()
-                type_counts.columns = ['Type', 'Nombre']
+        # Onglet 1: Statistiques Générales
+        with tabs[0]:
+            st.subheader("Aperçu des statistiques globales")
 
-                fig = px.pie(
-                    type_counts,
-                    values='Nombre',
-                    names='Type',
-                    title='Répartition des types de levés',
-                    hole=0.3
-                )
-                fig.update_traces(textposition='inside', textinfo='percent+label')
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Aucune donnée disponible pour ce filtre.")
+            # Métriques principales
+            col1, col2, col3 = st.columns(3)
+            total_quantite = leves_filtered['quantite'].sum()
+            moyenne_quantite = leves_filtered['quantite'].mean()
 
-        with col2:
-            # Statistiques par village avec Plotly
-            st.subheader("Levés par Village")
-            if not leves_filtered.empty:
-                village_counts = leves_filtered['village'].value_counts().reset_index().head(10)
-                village_counts.columns = ['Village', 'Nombre']
+            with col1:
+                st.metric("Nombre Total de Levés", len(leves_filtered))
+            with col2:
+                st.metric("Quantité Totale", f"{total_quantite:,.0f}")
+            with col3:
+                st.metric("Moyenne par Levé", f"{moyenne_quantite:.2f}")
+
+            # Top des topographes et types de levés (les plus importants)
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # Statistiques par type de levé
+                st.subheader("Levés par Type")
+                if not leves_filtered.empty:
+                    type_counts = leves_filtered['type'].value_counts().reset_index()
+                    type_counts.columns = ['Type', 'Nombre']
+
+                    fig = px.pie(
+                        type_counts,
+                        values='Nombre',
+                        names='Type',
+                        title='Répartition des types de levés',
+                        hole=0.3
+                    )
+                    # Simplifier le rendu pour plus de fluidité
+                    fig.update_traces(textposition='inside', textinfo='percent')
+                    # Définir une hauteur fixe pour le graphique
+                    st.plotly_chart(fig, use_container_width=True, height=300)
+                else:
+                    st.info("Aucune donnée disponible pour ce filtre.")
+
+            with col2:
+                # Top des topographes par quantité totale
+                st.subheader("Top des Topographes")
+                if not leves_filtered.empty:
+                    # Regrouper par topographe et sommer les quantités
+                    topo_quantites = leves_filtered.groupby('topographe')['quantite'].sum().reset_index().sort_values(
+                        'quantite', ascending=False).head(10)
+                    topo_quantites.columns = ['Topographe', 'Quantité Totale']
+
+                    fig = px.bar(
+                        topo_quantites,
+                        x='Topographe',
+                        y='Quantité Totale',
+                        title='Top 10 des topographes par quantité totale',
+                        color='Quantité Totale',
+                        color_continuous_scale='Viridis'
+                    )
+                    fig.update_layout(
+                        xaxis={'categoryorder': 'total descending'},
+                        height=350,
+                        margin=dict(l=40, r=40, t=60, b=80)
+                    )
+                    fig.update_xaxes(tickangle=45)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Aucune donnée disponible pour ce filtre.")
+
+        # Onglet 2: Répartition Géographique
+        with tabs[1]:
+            st.subheader("Répartition géographique des levés")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # Statistiques par région
+                if not leves_filtered.empty and 'region' in leves_filtered.columns and leves_filtered[
+                    'region'].notna().any():
+                    st.subheader("Levés par Région")
+                    region_counts = leves_filtered['region'].value_counts().reset_index()
+                    region_counts.columns = ['Région', 'Nombre']
+
+                    fig = px.pie(
+                        region_counts,
+                        values='Nombre',
+                        names='Région',
+                        title='Répartition des levés par région',
+                        hole=0.3
+                    )
+                    # Simplifier le rendu pour plus de fluidité
+                    fig.update_traces(textposition='inside', textinfo='percent')
+                    st.plotly_chart(fig, use_container_width=True, height=300)
+                else:
+                    st.info("Aucune donnée de région disponible.")
+
+            with col2:
+                # Statistiques par village
+                st.subheader("Levés par Village")
+                if not leves_filtered.empty:
+                    village_counts = leves_filtered['village'].value_counts().reset_index().head(10)
+                    village_counts.columns = ['Village', 'Nombre']
+
+                    fig = px.bar(
+                        village_counts,
+                        x='Village',
+                        y='Nombre',
+                        title='Top 10 des villages',
+                        color='Nombre',
+                        color_continuous_scale='Viridis'
+                    )
+                    fig.update_layout(
+                        xaxis={'categoryorder': 'total descending'},
+                        height=350,
+                        margin=dict(l=40, r=40, t=60, b=80)
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Aucune donnée disponible pour ce filtre.")
+
+            # Carte des communes si on a des coordonnées (optionnel)
+            if 'commune' in leves_filtered.columns and leves_filtered['commune'].notna().any():
+                st.subheader("Répartition par Commune")
+                commune_counts = leves_filtered['commune'].value_counts().reset_index()
+                commune_counts.columns = ['Commune', 'Nombre']
 
                 fig = px.bar(
-                    village_counts,
-                    x='Village',
+                    commune_counts.head(15),
+                    x='Commune',
                     y='Nombre',
-                    title='Top 10 des villages',
+                    title='Top 15 des communes par nombre de levés',
                     color='Nombre',
                     color_continuous_scale='Viridis'
                 )
-                fig.update_layout(xaxis={'categoryorder': 'total descending'})
+                fig.update_layout(
+                    xaxis={'categoryorder': 'total descending'},
+                    height=350,
+                    margin=dict(l=40, r=40, t=60, b=80)
+                )
+                # Réduire le nombre de ticks sur l'axe X pour une meilleure lisibilité
+                if len(commune_counts) > 10:
+                    fig.update_layout(
+                        xaxis=dict(tickmode='array', tickvals=list(range(0, len(commune_counts.head(15)), 2))))
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Aucune donnée disponible pour ce filtre.")
 
-        col1, col2 = st.columns(2)
+        # Onglet 3: Évolution Temporelle
+        with tabs[2]:
+            st.subheader("Analyse temporelle des levés")
 
-        with col1:
-            # Évolution temporelle des levés avec Plotly
-            st.subheader("Évolution des Levés dans le Temps")
+            # Évolution temporelle des levés
             if not leves_filtered.empty:
+                st.subheader("Évolution des Levés dans le Temps")
                 time_series = leves_filtered.groupby(pd.Grouper(key='date', freq='D')).size().reset_index()
                 time_series.columns = ['Date', 'Nombre']
 
@@ -757,51 +878,51 @@ def show_dashboard():
                     title='Évolution quotidienne des levés',
                     markers=True
                 )
-                fig.update_layout(xaxis_title='Date', yaxis_title='Nombre de levés')
+                fig.update_layout(
+                    xaxis_title='Date',
+                    yaxis_title='Nombre de levés',
+                    height=350,
+                    margin=dict(l=40, r=40, t=60, b=40)
+                )
+                # Optimiser l'affichage des dates pour éviter l'encombrement
+                fig.update_xaxes(
+                    tickangle=45,
+                    nticks=10,  # Limiter le nombre de ticks pour plus de lisibilité
+                    tickformat="%d %b"
+                )
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Aucune donnée disponible pour ce filtre.")
 
-        with col2:
-            # Top des topographes avec Plotly
-            st.subheader("Top des Topographes")
-            if not leves_filtered.empty:
-                topo_counts = leves_filtered['topographe'].value_counts().reset_index().head(10)
-                topo_counts.columns = ['Topographe', 'Nombre']
+                # Ajout d'une analyse mensuelle pour voir les tendances
+                monthly_series = leves_filtered.groupby(pd.Grouper(key='date', freq='M')).size().reset_index()
+                monthly_series.columns = ['Mois', 'Nombre']
+                monthly_series['Mois'] = monthly_series['Mois'].dt.strftime('%b %Y')
 
                 fig = px.bar(
-                    topo_counts,
-                    x='Topographe',
+                    monthly_series,
+                    x='Mois',
                     y='Nombre',
-                    title='Top 10 des topographes par nombre de levés',
+                    title='Évolution mensuelle des levés',
                     color='Nombre',
                     color_continuous_scale='Viridis'
                 )
-                fig.update_layout(xaxis={'categoryorder': 'total descending'})
+                fig.update_layout(
+                    height=350,
+                    margin=dict(l=40, r=40, t=60, b=80)
+                )
+                # Rotation des étiquettes pour les mois pour une meilleure lisibilité
+                fig.update_xaxes(tickangle=45)
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("Aucune donnée disponible pour ce filtre.")
+                st.info("Aucune donnée disponible pour analyser l'évolution temporelle.")
 
-        # Graphiques supplémentaires
-        if not leves_filtered.empty and 'region' in leves_filtered.columns and leves_filtered['region'].notna().any():
+        # Onglet 4: Performance
+        with tabs[3]:
+            st.subheader("Performance et efficacité")
+
             col1, col2 = st.columns(2)
 
             with col1:
-                st.subheader("Levés par Région")
-                region_counts = leves_filtered['region'].value_counts().reset_index()
-                region_counts.columns = ['Région', 'Nombre']
-
-                fig = px.pie(
-                    region_counts,
-                    values='Nombre',
-                    names='Région',
-                    title='Répartition des levés par région',
-                    hole=0.3
-                )
-                fig.update_traces(textposition='inside', textinfo='percent+label')
-                st.plotly_chart(fig, use_container_width=True)
-
-            with col2:
+                # Statistiques par appareil
                 if 'appareil' in leves_filtered.columns and leves_filtered['appareil'].notna().any():
                     st.subheader("Levés par Appareil")
                     appareil_counts = leves_filtered['appareil'].value_counts().reset_index()
@@ -815,21 +936,46 @@ def show_dashboard():
                         color='Nombre',
                         color_continuous_scale='Viridis'
                     )
-                    fig.update_layout(xaxis={'categoryorder': 'total descending'})
+                    fig.update_layout(
+                        xaxis={'categoryorder': 'total descending'},
+                        height=350,
+                        margin=dict(l=40, r=40, t=60, b=80)
+                    )
+                    # Ajuster les étiquettes si nécessaire
+                    if len(appareil_counts) > 8:
+                        fig.update_xaxes(tickangle=45)
                     st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Aucune donnée d'appareil disponible.")
 
-        # Afficher la somme totale des quantités
-        st.subheader("Statistiques Globales")
-        total_quantite = leves_filtered['quantite'].sum()
-        moyenne_quantite = leves_filtered['quantite'].mean()
+            with col2:
+                # Performance par topographe (quantité moyenne par levé)
+                if not leves_filtered.empty:
+                    st.subheader("Efficacité par Topographe")
+                    topo_perf = leves_filtered.groupby('topographe')['quantite'].agg(['mean', 'count']).reset_index()
+                    topo_perf.columns = ['Topographe', 'Moyenne', 'Nombre de levés']
+                    topo_perf = topo_perf[topo_perf[
+                                              'Nombre de levés'] >= 5]  # Filtre pour n'afficher que les topographes avec suffisamment de levés
+                    topo_perf = topo_perf.sort_values('Moyenne', ascending=False).head(10)
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Nombre Total de Levés", len(leves_filtered))
-        with col2:
-            st.metric("Quantité Totale", f"{total_quantite:,.0f}")
-        with col3:
-            st.metric("Moyenne par Levé", f"{moyenne_quantite:.2f}")
+                    fig = px.bar(
+                        topo_perf,
+                        x='Topographe',
+                        y='Moyenne',
+                        title='Top 10 des topographes par quantité moyenne par levé',
+                        color='Nombre de levés',
+                        color_continuous_scale='Viridis'
+                    )
+                    fig.update_layout(
+                        xaxis={'categoryorder': 'total descending'},
+                        height=350,
+                        margin=dict(l=40, r=40, t=60, b=80)
+                    )
+                    # Rotation des étiquettes pour une meilleure lisibilité
+                    fig.update_xaxes(tickangle=45)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Aucune donnée disponible pour ce filtre.")
 
         # Bouton central pour saisir des levés
         st.markdown("---")
@@ -866,36 +1012,23 @@ def show_dashboard():
 def show_saisie_page():
     st.title("Saisie des Levés Topographiques")
 
-    # Vérification que l'utilisateur est connecté
-    if not st.session_state.get("authenticated", False):
-        st.warning("Vous devez être connecté pour saisir des levés.")
-
-        # Afficher le formulaire de connexion directement sur cette page
-        with st.form("login_form_embed"):
-            st.subheader("Connexion")
-            username = st.text_input("Nom d'utilisateur")
-            password = st.text_input("Mot de passe", type="password")
-            submit = st.form_submit_button("Se connecter")
-
-            if submit:
-                user = verify_user(username, password)
-                if user:
-                    st.session_state.user = user
-                    st.session_state.username = username
-                    st.session_state.authenticated = True
-                    st.success(f"Connexion réussie! Bienvenue {username}!")
-                    st.rerun()
-                else:
-                    st.error("Nom d'utilisateur ou mot de passe incorrect.")
-
-        st.markdown("---")
-        st.markdown("Pas encore de compte? Cliquez sur 'S'inscrire' dans le menu latéral.")
-        return
-
-    # Utilisons une clé pour forcer la réinitialisation du formulaire
+    # Initialisation des variables de session si nécessaire
     if "form_key" not in st.session_state:
         st.session_state.form_key = 0
+    if "form_submitted" not in st.session_state:
+        st.session_state.form_submitted = False
 
+    # Gestion des messages de succès après soumission
+    if st.session_state.form_submitted:
+        st.success("Levé enregistré avec succès!")
+        st.session_state.form_submitted = False
+
+    # Vérification que l'utilisateur est connecté
+    if not st.session_state.get("authenticated", False):
+        show_login_form()
+        return
+
+    # Affichage du formulaire des levés topographiques
     with st.form(key=f"leve_form_{st.session_state.form_key}"):
         # La date du jour est préremplie
         date = st.date_input("Date du levé", datetime.now())
@@ -904,7 +1037,7 @@ def show_saisie_page():
         topographe = st.session_state.username
         st.write(f"Topographe: **{topographe}**")
 
-        # Autres champs du formulaire
+        # Disposition en colonnes
         col1, col2 = st.columns(2)
         with col1:
             village = st.text_input("Village", placeholder="Nom du village")
@@ -913,32 +1046,87 @@ def show_saisie_page():
             commune = st.text_input("Commune", placeholder="Nom de la commune")
             appareil = st.text_input("Appareil utilisé", placeholder="Modèle de l'appareil")
 
-        # Types de levés prédéfinis
+        # Mémorisation des valeurs pour éviter de les perdre
+        if "cached_form_data" not in st.session_state:
+            st.session_state.cached_form_data = {
+                "village": "", "region": "", "commune": "", "appareil": "",
+                "type_leve": 0, "quantite": 1
+            }
+
+        # Types de levés prédéfinis avec valeur par défaut
         type_options = ["Batîments", "Champs", "Edifice publique", "Autre"]
-        type_leve = st.selectbox("Type de levé", options=type_options)
+        type_leve = st.selectbox(
+            "Type de levé",
+            options=type_options,
+            index=st.session_state.cached_form_data["type_leve"]
+        )
 
-        quantite = st.number_input("Quantité", min_value=0, step=1, format="%d")
+        # Quantité avec valeur minimale et par défaut
+        quantite = st.number_input(
+            "Quantité",
+            min_value=1,
+            value=st.session_state.cached_form_data["quantite"],
+            step=1
+        )
 
+        # Bouton de soumission
         submit = st.form_submit_button("Enregistrer le levé")
 
         if submit:
+            # Mise en cache des données en cas d'échec
+            st.session_state.cached_form_data = {
+                "village": village, "region": region, "commune": commune,
+                "appareil": appareil, "type_leve": type_options.index(type_leve),
+                "quantite": quantite
+            }
+
+            # Validation
             if not village:
                 st.error("Veuillez entrer le nom du village.")
-            elif quantite <= 0:
-                st.error("La quantité doit être supérieure à zéro.")
             else:
                 # Conversion de la date au format string
                 date_str = date.strftime("%Y-%m-%d")
 
                 # Enregistrement du levé
                 if add_leve(date_str, village, region, commune, type_leve, quantite, appareil, topographe):
-                    st.success("Levé enregistré avec succès!")
+                    # Marquer comme soumis pour afficher le message de succès
+                    st.session_state.form_submitted = True
+                    # Réinitialiser le cache
+                    st.session_state.cached_form_data = {
+                        "village": "", "region": "", "commune": "", "appareil": "",
+                        "type_leve": 0, "quantite": 1
+                    }
                     # Incrémenter la clé pour réinitialiser le formulaire
                     st.session_state.form_key += 1
-                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error("Erreur lors de l'enregistrement du levé.")
+
+
+def show_login_form():
+    """Fonction séparée pour afficher le formulaire de connexion"""
+    st.warning("Vous devez être connecté pour saisir des levés.")
+
+    # Afficher le formulaire de connexion
+    with st.form("login_form_embed"):
+        st.subheader("Connexion")
+        username = st.text_input("Nom d'utilisateur")
+        password = st.text_input("Mot de passe", type="password")
+        submit = st.form_submit_button("Se connecter")
+
+        if submit:
+            user = verify_user(username, password)
+            if user:
+                st.session_state.user = user
+                st.session_state.username = username
+                st.session_state.authenticated = True
+                st.success(f"Connexion réussie! Bienvenue {username}!")
+                st.rerun()
+            else:
+                st.error("Nom d'utilisateur ou mot de passe incorrect.")
+
+    st.markdown("---")
+    st.markdown("Pas encore de compte? Cliquez sur 'S'inscrire' dans le menu latéral.")
 
 
 # Fonction pour afficher la page de suivi
@@ -1078,7 +1266,6 @@ def show_suivi_page():
                     success, message = delete_user_leve(leve_id, st.session_state.username)
                     if success:
                         st.success(message)
-                        time.sleep(1)
                         st.rerun()
                     else:
                         st.error(message)
@@ -1234,7 +1421,6 @@ def show_admin_users_page():
                 success, message = delete_user(user_id)
                 if success:
                     st.success(message)
-                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error(message)
@@ -1263,7 +1449,6 @@ def show_admin_users_page():
                 success, message = add_user(username, password, email, phone, role)
                 if success:
                     st.success(message)
-                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error(message)
@@ -1322,31 +1507,24 @@ def main():
     init_db()
 
     # Initialisation des variables de session si elles n'existent pas
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
+    if "app_state" not in st.session_state:
+        st.session_state.app_state = {
+            "authenticated": False,
+            "username": None,
+            "user": None,
+            "current_page": "Dashboard",
+            "show_login": False,
+            "show_registration": False
+        }
 
-    if "username" not in st.session_state:
-        st.session_state.username = None
-
-    if "user" not in st.session_state:
-        st.session_state.user = None
-
-    if "show_login" not in st.session_state:
-        st.session_state.show_login = False
-
-    if "show_registration" not in st.session_state:
-        st.session_state.show_registration = False
-
-    if "current_page" not in st.session_state:
-        st.session_state.current_page = "Dashboard"
-
+    app_state = st.session_state.app_state
     # Affichage de la page de connexion si demandé
-    if st.session_state.show_login:
+    if app_state["show_login"]:
         show_login_page()
         return
 
     # Affichage de la page d'inscription si demandé
-    if st.session_state.show_registration:
+    if app_state["show_registration"]:
         show_registration_page()
         return
 
