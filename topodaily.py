@@ -1293,7 +1293,7 @@ def show_admin_users_page():
     st.title("Administration - Gestion des Utilisateurs")
 
     # Vérification que l'utilisateur est connecté et est admin
-    if not st.session_state.app_state("authenticated", False) or st.session_state.user["role"] != "administrateur":
+    if not st.session_state.get("authenticated", False) or st.session_state.user["role"] != "administrateur":
         st.error("Accès non autorisé. Cette page est réservée aux administrateurs.")
         return
 
@@ -1366,7 +1366,7 @@ def show_admin_data_page():
     st.title("Administration - Gestion des Données")
 
     # Vérification que l'utilisateur est connecté et est admin
-    if not st.session_state.app_state("authenticated", False) or st.session_state.user["role"] != "administrateur":
+    if not st.session_state.get("authenticated", False) or st.session_state.user["role"] != "administrateur":
         st.error("Accès non autorisé. Cette page est réservée aux administrateurs.")
         return
 
