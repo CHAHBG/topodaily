@@ -369,7 +369,6 @@ def get_leves_by_topographe(topographe):
         return pd.DataFrame()
 
 
-
 # Fonction pour obtenir les données uniques pour les filtres
 @st.cache_data(ttl=300)
 def get_filter_options():
@@ -574,7 +573,8 @@ def show_navigation_sidebar():
         st.sidebar.write(f"Rôle: **{user_role}**")
 
         # Conserver le choix de page courant
-        current_idx = ["Dashboard", "Saisie des Levés", "Suivi", "Mon Compte"].index(app_state["current_page"]) if app_state["current_page"] in ["Dashboard", "Saisie des Levés", "Suivi", "Mon Compte"] else 0
+        current_idx = ["Dashboard", "Saisie des Levés", "Suivi", "Mon Compte"].index(app_state["current_page"]) if \
+        app_state["current_page"] in ["Dashboard", "Saisie des Levés", "Suivi", "Mon Compte"] else 0
 
         # Pages accessibles à tous les utilisateurs connectés
         page = st.sidebar.radio(
@@ -722,22 +722,26 @@ def show_dashboard():
                 if not leves_filtered.empty:
                     type_counts = leves_filtered.groupby('type')['quantite'].sum().reset_index()
                     type_counts.columns = ['Type', 'Quantité']
-            
-                    fig = px.pie(type_counts, values='Quantité', names='Type', title='Répartition des types de levés (quantité)', hole=0.3)
+
+                    fig = px.pie(type_counts, values='Quantité', names='Type',
+                                 title='Répartition des types de levés (quantité)', hole=0.3)
                     fig.update_traces(textposition='inside', textinfo='percent+label')
                     st.plotly_chart(fig, use_container_width=True, height=300)
                 else:
                     st.info("Aucune donnée disponible pour ce filtre.")
 
-
             with col2:
                 st.subheader("Top des Topographes")
                 if not leves_filtered.empty:
-                    topo_quantites = leves_filtered.groupby('topographe')['quantite'].sum().reset_index().sort_values('quantite', ascending=False).head(10)
+                    topo_quantites = leves_filtered.groupby('topographe')['quantite'].sum().reset_index().sort_values(
+                        'quantite', ascending=False).head(10)
                     topo_quantites.columns = ['Topographe', 'Quantité Totale']
 
-                    fig = px.bar(topo_quantites, x='Topographe', y='Quantité Totale', title='Top 10 des topographes par quantité totale', color='Quantité Totale', color_continuous_scale='Viridis')
-                    fig.update_layout(xaxis={'categoryorder': 'total descending'}, height=350, margin=dict(l=40, r=40, t=60, b=80))
+                    fig = px.bar(topo_quantites, x='Topographe', y='Quantité Totale',
+                                 title='Top 10 des topographes par quantité totale', color='Quantité Totale',
+                                 color_continuous_scale='Viridis')
+                    fig.update_layout(xaxis={'categoryorder': 'total descending'}, height=350,
+                                      margin=dict(l=40, r=40, t=60, b=80))
                     fig.update_xaxes(tickangle=45)
                     st.plotly_chart(fig, use_container_width=True)
                 else:
@@ -749,12 +753,15 @@ def show_dashboard():
             col1, col2 = st.columns(2)
 
             with col1:
-                if not leves_filtered.empty and 'region' in leves_filtered.columns and leves_filtered['region'].notna().any():
+                if not leves_filtered.empty and 'region' in leves_filtered.columns and leves_filtered[
+                    'region'].notna().any():
                     st.subheader("Levés par Région")
-                    region_counts = leves_filtered.groupby('region')['quantite'].sum().reset_index().sort_values('quantite', ascending=False)
+                    region_counts = leves_filtered.groupby('region')['quantite'].sum().reset_index().sort_values(
+                        'quantite', ascending=False)
                     region_counts.columns = ['Région', 'Quantité']
 
-                    fig = px.pie(region_counts, values='Quantité', names='Région', title='Répartition des levés par région (quantité totale)', hole=0.3)
+                    fig = px.pie(region_counts, values='Quantité', names='Région',
+                                 title='Répartition des levés par région (quantité totale)', hole=0.3)
                     fig.update_traces(textposition='inside', textinfo='percent')
                     st.plotly_chart(fig, use_container_width=True, height=300)
                 else:
@@ -763,24 +770,33 @@ def show_dashboard():
             with col2:
                 st.subheader("Levés par Village")
                 if not leves_filtered.empty:
-                    village_counts = leves_filtered.groupby('village')['quantite'].sum().reset_index().sort_values('quantite', ascending=False).head(10)
+                    village_counts = leves_filtered.groupby('village')['quantite'].sum().reset_index().sort_values(
+                        'quantite', ascending=False).head(10)
                     village_counts.columns = ['Village', 'Quantité']
 
-                    fig = px.bar(village_counts, x='Village', y='Quantité', title='Top 10 des villages (quantité totale)', color='Quantité', color_continuous_scale='Viridis')
-                    fig.update_layout(xaxis={'categoryorder': 'total descending'}, height=350, margin=dict(l=40, r=40, t=60, b=80))
+                    fig = px.bar(village_counts, x='Village', y='Quantité',
+                                 title='Top 10 des villages (quantité totale)', color='Quantité',
+                                 color_continuous_scale='Viridis')
+                    fig.update_layout(xaxis={'categoryorder': 'total descending'}, height=350,
+                                      margin=dict(l=40, r=40, t=60, b=80))
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.info("Aucune donnée disponible pour ce filtre.")
 
             if 'commune' in leves_filtered.columns and leves_filtered['commune'].notna().any():
                 st.subheader("Répartition par Commune")
-                commune_counts = leves_filtered.groupby('commune')['quantite'].sum().reset_index().sort_values('quantite', ascending=False)
+                commune_counts = leves_filtered.groupby('commune')['quantite'].sum().reset_index().sort_values(
+                    'quantite', ascending=False)
                 commune_counts.columns = ['Commune', 'Quantité']
 
-                fig = px.bar(commune_counts.head(15), x='Commune', y='Quantité', title='Top 15 des communes (quantité totale)', color='Quantité', color_continuous_scale='Viridis')
-                fig.update_layout(xaxis={'categoryorder': 'total descending'}, height=350, margin=dict(l=40, r=40, t=60, b=80))
+                fig = px.bar(commune_counts.head(15), x='Commune', y='Quantité',
+                             title='Top 15 des communes (quantité totale)', color='Quantité',
+                             color_continuous_scale='Viridis')
+                fig.update_layout(xaxis={'categoryorder': 'total descending'}, height=350,
+                                  margin=dict(l=40, r=40, t=60, b=80))
                 if len(commune_counts) > 10:
-                    fig.update_layout(xaxis=dict(tickmode='array', tickvals=list(range(0, len(commune_counts.head(15)), 2))))
+                    fig.update_layout(
+                        xaxis=dict(tickmode='array', tickvals=list(range(0, len(commune_counts.head(15)), 2))))
                 st.plotly_chart(fig, use_container_width=True)
 
         with tabs[2]:
@@ -790,16 +806,21 @@ def show_dashboard():
                 time_series = leves_filtered.groupby(pd.Grouper(key='date', freq='D'))['quantite'].sum().reset_index()
                 time_series.columns = ['Date', 'Quantité']
 
-                fig = px.line(time_series, x='Date', y='Quantité', title='Évolution quotidienne des levés (quantité totale)', markers=True)
-                fig.update_layout(xaxis_title='Date', yaxis_title='Quantité levée', height=350, margin=dict(l=40, r=40, t=60, b=40))
+                fig = px.line(time_series, x='Date', y='Quantité',
+                              title='Évolution quotidienne des levés (quantité totale)', markers=True)
+                fig.update_layout(xaxis_title='Date', yaxis_title='Quantité levée', height=350,
+                                  margin=dict(l=40, r=40, t=60, b=40))
                 fig.update_xaxes(tickangle=45, nticks=10, tickformat="%d %b")
                 st.plotly_chart(fig, use_container_width=True)
 
-                monthly_series = leves_filtered.groupby(pd.Grouper(key='date', freq='M'))['quantite'].sum().reset_index()
+                monthly_series = leves_filtered.groupby(pd.Grouper(key='date', freq='M'))[
+                    'quantite'].sum().reset_index()
                 monthly_series.columns = ['Mois', 'Quantité']
                 monthly_series['Mois'] = monthly_series['Mois'].dt.strftime('%b %Y')
 
-                fig = px.bar(monthly_series, x='Mois', y='Quantité', title='Évolution mensuelle des levés (quantité totale)', color='Quantité', color_continuous_scale='Viridis')
+                fig = px.bar(monthly_series, x='Mois', y='Quantité',
+                             title='Évolution mensuelle des levés (quantité totale)', color='Quantité',
+                             color_continuous_scale='Viridis')
                 fig.update_layout(height=350, margin=dict(l=40, r=40, t=60, b=80))
                 fig.update_xaxes(tickangle=45)
                 st.plotly_chart(fig, use_container_width=True)
@@ -814,11 +835,15 @@ def show_dashboard():
             with col1:
                 if 'appareil' in leves_filtered.columns and leves_filtered['appareil'].notna().any():
                     st.subheader("Levés par Appareil")
-                    appareil_counts = leves_filtered.groupby('appareil')['quantite'].sum().reset_index().sort_values('quantite', ascending=False)
+                    appareil_counts = leves_filtered.groupby('appareil')['quantite'].sum().reset_index().sort_values(
+                        'quantite', ascending=False)
                     appareil_counts.columns = ['Appareil', 'Quantité']
 
-                    fig = px.bar(appareil_counts, x='Appareil', y='Quantité', title='Répartition des levés par appareil (quantité totale)', color='Quantité', color_continuous_scale='Viridis')
-                    fig.update_layout(xaxis={'categoryorder': 'total descending'}, height=350, margin=dict(l=40, r=40, t=60, b=80))
+                    fig = px.bar(appareil_counts, x='Appareil', y='Quantité',
+                                 title='Répartition des levés par appareil (quantité totale)', color='Quantité',
+                                 color_continuous_scale='Viridis')
+                    fig.update_layout(xaxis={'categoryorder': 'total descending'}, height=350,
+                                      margin=dict(l=40, r=40, t=60, b=80))
                     if len(appareil_counts) > 8:
                         fig.update_xaxes(tickangle=45)
                     st.plotly_chart(fig, use_container_width=True)
@@ -830,10 +855,14 @@ def show_dashboard():
                     st.subheader("Efficacité par Topographe")
                     topo_perf = leves_filtered.groupby('topographe')['quantite'].agg(['mean', 'count']).reset_index()
                     topo_perf.columns = ['Topographe', 'Moyenne', 'Nombre de levés']
-                    topo_perf = topo_perf[topo_perf['Nombre de levés'] >= 5].sort_values('Moyenne', ascending=False).head(10)
+                    topo_perf = topo_perf[topo_perf['Nombre de levés'] >= 5].sort_values('Moyenne',
+                                                                                         ascending=False).head(10)
 
-                    fig = px.bar(topo_perf, x='Topographe', y='Moyenne', title='Top 10 des topographes par quantité moyenne par levé', color='Nombre de levés', color_continuous_scale='Viridis')
-                    fig.update_layout(xaxis={'categoryorder': 'total descending'}, height=350, margin=dict(l=40, r=40, t=60, b=80))
+                    fig = px.bar(topo_perf, x='Topographe', y='Moyenne',
+                                 title='Top 10 des topographes par quantité moyenne par levé', color='Nombre de levés',
+                                 color_continuous_scale='Viridis')
+                    fig.update_layout(xaxis={'categoryorder': 'total descending'}, height=350,
+                                      margin=dict(l=40, r=40, t=60, b=80))
                     fig.update_xaxes(tickangle=45)
                     st.plotly_chart(fig, use_container_width=True)
                 else:
@@ -867,6 +896,7 @@ def show_dashboard():
                     st.session_state.app_state["show_registration"] = False
                     st.warning("Veuillez vous connecter pour saisir des levés.")
                     st.rerun()
+
 
 # Fonction pour afficher la page de saisie des levés
 def show_saisie_page():
@@ -995,6 +1025,7 @@ def show_saisie_page():
                     st.rerun()
                 else:
                     st.error("Erreur lors de l'enregistrement du levé.")
+
 
 def show_login_form():
     """Fonction séparée pour afficher le formulaire de connexion"""
@@ -1262,7 +1293,7 @@ def show_admin_users_page():
     st.title("Administration - Gestion des Utilisateurs")
 
     # Vérification que l'utilisateur est connecté et est admin
-    if not st.session_state.get("authenticated", False) or st.session_state.user["role"] != "administrateur":
+    if not st.session_state.app_state("authenticated", False) or st.session_state.user["role"] != "administrateur":
         st.error("Accès non autorisé. Cette page est réservée aux administrateurs.")
         return
 
@@ -1335,7 +1366,7 @@ def show_admin_data_page():
     st.title("Administration - Gestion des Données")
 
     # Vérification que l'utilisateur est connecté et est admin
-    if not st.session_state.get("authenticated", False) or st.session_state.user["role"] != "administrateur":
+    if not st.session_state.app_state("authenticated", False) or st.session_state.user["role"] != "administrateur":
         st.error("Accès non autorisé. Cette page est réservée aux administrateurs.")
         return
 
