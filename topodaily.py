@@ -895,7 +895,7 @@ def show_dashboard():
         with col2:
             if st.button("Saisir un nouveau levé", use_container_width=True):
                 if st.session_state.get("authenticated", False):
-                    st.session_state.current_page = "Dashboard"
+                    st.session_state.current_page = "Saisie des Levés"
                     st.rerun()
                 else:
                     st.session_state.app_state["show_login"] = True
