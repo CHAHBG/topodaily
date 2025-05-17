@@ -1007,7 +1007,6 @@ def show_dashboard():
                     st.warning("Veuillez vous connecter pour saisir des levés.")
                     st.rerun()
 
-
 # Fonction pour afficher la page de saisie des levés
 def show_saisie_page():
     st.title("Saisie des Levés Topographiques")
