@@ -630,11 +630,12 @@ def show_navigation_sidebar():
                 st.session_state.app_state["show_registration"] = True
                 st.rerun()
 
+    # Vérifier si la page a changé et déclencher un rechargement
     if app_state["current_page"] != page:
         app_state["current_page"] = page
+        st.rerun()  # Ajout d'un st.rerun() ici pour actualiser immédiatement
 
     return page
-
 
 
 # Fonction pour afficher le dashboard
