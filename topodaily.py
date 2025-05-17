@@ -1139,43 +1139,6 @@ def show_saisie_page():
                 else:
                     st.error("Erreur lors de l'enregistrement du levé.")
 
-
-def show_login_form():
-    """Fonction séparée pour afficher le formulaire de connexion"""
-    st.warning("Vous devez être connecté pour saisir des levés.")
-
-    # Afficher le formulaire de connexion
-    with st.form("login_form_embed", clear_on_submit=True):
-        st.subheader("Connexion")
-        username = st.text_input("Nom d'utilisateur", key="login_username")
-        password = st.text_input("Mot de passe", type="password", key="login_password")
-        submit_col, info_col = st.columns([1, 2])
-        with submit_col:
-            submit = st.form_submit_button("Se connecter")
-
-        if submit:
-            # Simuler un temps de chargement pour indiquer une action
-            with st.spinner("Vérification..."):
-                user = verify_user(username, password)
-                if user:
-                    st.session_state.user = user
-                    st.session_state.username = username
-                    st.session_state.authenticated = True
-                    st.success(f"Connexion réussie! Bienvenue {username}!")
-                    # Petit délai pour voir le message
-                    time.sleep(0.5)
-                    st.rerun()
-                else:
-                    st.error("Nom d'utilisateur ou mot de passe incorrect.")
-
-    st.markdown("---")
-
-    # Bouton d'inscription interactif
-    if st.button("Créer un nouveau compte", key="signup_btn"):
-        st.session_state.page = "signup"
-        st.rerun()
-
-
 def show_login_form():
     """Fonction séparée pour afficher le formulaire de connexion"""
     st.warning("Vous devez être connecté pour saisir des levés.")
