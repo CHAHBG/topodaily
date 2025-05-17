@@ -1075,7 +1075,9 @@ def load_villages_data():
         
         # Nettoyer les noms de colonnes (convertir en minuscules)
         df.columns = [col.lower() for col in df.columns]
-        
+        df['region'] = df['region'].str.strip()
+        df['commune'] = df['commune'].str.strip()
+        df['village'] = df['village'].str.strip()
         # Structurer les données en hiérarchie: région -> commune -> villages
         villages_data = {}
         
