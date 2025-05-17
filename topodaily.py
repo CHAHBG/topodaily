@@ -907,7 +907,11 @@ def show_dashboard():
 # Fonction pour afficher la page de saisie des levés
 def show_saisie_page():
     st.title("Saisie des Levés Topographiques")
-
+    if "villages_data" not in st.session_state:
+            success = load_villages_data()
+            if not success:
+                st.error("Impossible de charger les données des villages.")
+                return
     # Authentification
     if not st.session_state.app_state.get("authenticated", False):
         st.warning("Vous devez être connecté pour accéder à cette page.")
