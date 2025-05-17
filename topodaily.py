@@ -503,11 +503,17 @@ def show_login_page():
         if submit:
             user = verify_user(username, password)
             if user:
+                # Met à jour app_state
                 st.session_state.app_state["user"] = user
                 st.session_state.app_state["username"] = username
                 st.session_state.app_state["authenticated"] = True
                 st.session_state.app_state["show_login"] = False
                 st.session_state.app_state["current_page"] = "Mon Compte"
+
+                # Met à jour les clés globales aussi
+                st.session_state.user = user
+                st.session_state.authenticated = True
+
                 st.success(f"Connexion réussie! Bienvenue {username}!")
                 st.rerun()
             else:
