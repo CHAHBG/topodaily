@@ -948,6 +948,29 @@ def show_saisie_page():
             st.session_state.app_state["current_page"] = "Suivi"
             st.rerun()
 
+    # Initialisation du cache si nécessaire
+    if "cached_form_data" not in st.session_state:
+        st.session_state.cached_form_data = {
+            "region": "", "commune": "", "village": "", "appareil": "",
+            "type_leve": 0, "quantite": 1
+        }
+
+    # Création de callbacks pour les changements de sélection
+    def on_region_change():
+        selected_region = st.session_state.region_select
+        if selected_region != st.session_state.cached_form_data.get("region", ""):
+            st.session_state.cached_form_data["region"] = selected_region
+            st.session_state.cached_form_data["commune"] = ""
+            st.session_state.cached_form_data["village"] = ""
+            st.rerun()
+
+    def on_commune_change():
+        selected_commune = st.session_state.commune_select
+        if selected_commune != st.session_state.cached_form_data.get("commune", ""):
+            st.session_state.cached_form_data["commune"] = selected_commune
+            st.session_state.cached_form_data["village"] = ""
+            st.rerun()
+
     # Affichage du formulaire des levés topographiques
     with st.form(key=f"leve_form_{st.session_state.form_key}"):
         st.subheader("Nouveau levé topographique")
@@ -965,46 +988,88 @@ def show_saisie_page():
                 "type_leve": 0, "quantite": 1
             }
 
-        # Sélection de la région (liste déroulante avec recherche)
-        region_options = [""] + list(st.session_state.villages_data.keys())
-        region = st.selectbox(
-            "Région",
-            options=region_options,
-            index=get_index_or_default(region_options, st.session_state.cached_form_data.get("region", "")),
-            key="region_select"
-        )
-
-        # Sélection de la commune (liste déroulante avec recherche)
-        commune_options = [""]
-        if region:
-            commune_options += list(st.session_state.villages_data[region].keys())
+        # Disposition en colonnes pour la localisation
+        col1, col2 = st.columns(2)
         
-        commune = st.selectbox(
-            "Commune",
-            options=commune_options,
-            index=get_index_or_default(commune_options, st.session_state.cached_form_data.get("commune", "")),
-            key="commune_select"
-        )
-
-        # Sélection du village (liste déroulante avec recherche)
-        village_options = [""]
-        if region and commune:
-            village_options += st.session_state.villages_data[region][commune]
-        
-        village = st.selectbox(
-            "Village",
-            options=village_options,
-            index=get_index_or_default(village_options, st.session_state.cached_form_data.get("village", "")),
-            key="village_select"
-        )
+        with col1:
+            # Sélection de la région (liste déroulante avec recherche)
+            region_options = [""] + sorted(list(st.session_state.villages_data.keys()))
+            region = st.selectbox(
+                "Région",
+                options=region_options,
+                index=get_index_or_default(region_options, st.session_state.cached_form_data.get("region", "")),
+                key="region_select",
+                on_change=on_region_change
+            )
+            
+            # Sélection du village (liste déroulante avec recherche)
+            village_options = [""]
+            current_region = st.session_state.cached_form_data.get("region", "")
+            current_commune = st.session_state.cached_form_data.get("commune", "")
+            
+            if current_region and current_commune:
+                if current_commune in st.session_state.villages_data.get(current_region, {}):
+                    village_options += sorted(st.session_state.villages_data[current_region][current_commune])
+            
+            village = st.selectbox(
+                "Village",
+                options=village_options,
+                index=get_index_or_default(village_options, st.session_state.cached_form_data.get("village", "")),
+                key="village_select"
+            )
+            
+        with col2:
+            # Sélection de la commune (liste déroulante avec recherche)
+            commune_options = [""]
+            current_region = st.session_state.cached_form_data.get("region", "")
+            
+            if current_region:
+                commune_options += sorted(list(st.session_state.villages_data.get(current_region, {}).keys()))
+            
+            commune = st.selectbox(
+                "Commune",
+                options=commune_options,
+                index=get_index_or_default(commune_options, st.session_state.cached_form_data.get("commune", "")),
+                key="commune_select",
+                on_change=on_commune_change
+            )
 
         # Disposition en colonnes pour les autres champs
         col1, col2 = st.columns(2)
         
         with col1:
-            appareil = st.text_input("Appareil utilisé",
-                                     value=st.session_state.cached_form_data.get("appareil", ""),
-                                     placeholder="Modèle de l'appareil")
+            # Liste déroulante pour les appareils avec options prédéfinies
+            appareil_options = ["LT60H", "TRIMBLE", "AUTRE"]
+            
+            # Gérer la valeur de l'appareil dans le cache
+            cached_appareil = st.session_state.cached_form_data.get("appareil", "")
+            
+            # Déterminer l'index initial pour la liste déroulante
+            if cached_appareil in appareil_options:
+                appareil_index = appareil_options.index(cached_appareil)
+            elif cached_appareil:  # Si une valeur personnalisée est présente
+                appareil_options.append(cached_appareil)  # Ajouter la valeur personnalisée temporairement
+                appareil_index = len(appareil_options) - 1
+            else:
+                appareil_index = 0
+            
+            appareil = st.selectbox(
+                "Appareil utilisé",
+                options=appareil_options,
+                index=appareil_index,
+                key="appareil_select"
+            )
+            
+            # Champ de texte pour "AUTRE" appareil
+            if appareil == "AUTRE":
+                appareil_autre = st.text_input(
+                    "Précisez l'appareil",
+                    value=cached_appareil if cached_appareil not in ["LT60H", "TRIMBLE", "AUTRE"] else "",
+                    placeholder="Nom de l'appareil",
+                    key="appareil_autre"
+                )
+                if appareil_autre:
+                    appareil = appareil_autre
         
         with col2:
             # Types de levés prédéfinis avec valeur par défaut
@@ -1067,17 +1132,29 @@ def load_villages_data():
     """Charge les données des villages depuis le fichier Excel"""
     import pandas as pd
     import io
+    import logging
 
     try:
         # Lire le fichier Excel
         excel_file = "Villages.xlsx"
         df = pd.read_excel(excel_file)
         
+        # Afficher les informations sur le fichier Excel (pour débogage)
+        logging.info(f"Fichier Excel chargé: {excel_file}")
+        logging.info(f"Colonnes trouvées: {df.columns.tolist()}")
+        logging.info(f"Nombre de lignes: {len(df)}")
+        
         # Nettoyer les noms de colonnes (convertir en minuscules)
         df.columns = [col.lower() for col in df.columns]
-        df['region'] = df['region'].str.strip()
-        df['commune'] = df['commune'].str.strip()
-        df['village'] = df['village'].str.strip()
+        
+        # Vérifier que les colonnes nécessaires existent
+        required_columns = ['village', 'commune', 'region']
+        for col in required_columns:
+            if col not in df.columns:
+                st.error(f"Le fichier Excel ne contient pas la colonne requise: {col}")
+                st.session_state.villages_data = {}
+                return False
+        
         # Structurer les données en hiérarchie: région -> commune -> villages
         villages_data = {}
         
@@ -1085,6 +1162,15 @@ def load_villages_data():
             region = row['region']
             commune = row['commune']
             village = row['village']
+            
+            # Ignorer les lignes avec des valeurs manquantes
+            if pd.isna(region) or pd.isna(commune) or pd.isna(village):
+                continue
+                
+            # Convertir en string pour éviter les problèmes
+            region = str(region).strip()
+            commune = str(commune).strip()
+            village = str(village).strip()
             
             # Initialiser la région si elle n'existe pas encore
             if region not in villages_data:
@@ -1094,8 +1180,9 @@ def load_villages_data():
             if commune not in villages_data[region]:
                 villages_data[region][commune] = []
             
-            # Ajouter le village à la commune
-            villages_data[region][commune].append(village)
+            # Ajouter le village à la commune s'il n'existe pas déjà
+            if village not in villages_data[region][commune]:
+                villages_data[region][commune].append(village)
         
         # Trier les listes de villages par ordre alphabétique
         for region in villages_data:
@@ -1104,6 +1191,7 @@ def load_villages_data():
         
         # Stocker les données dans la session
         st.session_state.villages_data = villages_data
+        logging.info(f"Données chargées: {len(villages_data)} régions")
         return True
     
     except Exception as e:
