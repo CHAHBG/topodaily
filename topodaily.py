@@ -947,20 +947,30 @@ def show_saisie_page():
     # 🔄 Sélections dynamiques hors formulaire
     st.subheader("Sélection de la localisation")
 
-    def on_region_change():
-        st.session_state.cached_form_data["region"] = st.session_state.region_select
-        st.session_state.cached_form_data["commune"] = ""
-        st.session_state.cached_form_data["village"] = ""
+    # Gestion du rerun différé via flag
+    if st.session_state.get("_should_rerun", False):
+        st.session_state._should_rerun = False
         st.rerun()
+
+    # Callbacks corrigés
+    def on_region_change():
+        selected_region = st.session_state.region_select
+        if selected_region != st.session_state.cached_form_data.get("region", ""):
+            st.session_state.cached_form_data["region"] = selected_region
+            st.session_state.cached_form_data["commune"] = ""
+            st.session_state.cached_form_data["village"] = ""
+            st.session_state._should_rerun = True  # On pose un flag ici
 
     def on_commune_change():
-        st.session_state.cached_form_data["commune"] = st.session_state.commune_select
-        st.session_state.cached_form_data["village"] = ""
-        st.rerun()
+        selected_commune = st.session_state.commune_select
+        if selected_commune != st.session_state.cached_form_data.get("commune", ""):
+            st.session_state.cached_form_data["commune"] = selected_commune
+            st.session_state.cached_form_data["village"] = ""
+            st.session_state._should_rerun = True  # Ici aussi
 
-    # Région
+    # Affichage des sélecteurs (extrait)
     region_options = [""] + sorted(list(st.session_state.villages_data.keys()))
-    st.selectbox(
+    region = st.selectbox(
         "Région",
         options=region_options,
         index=get_index_or_default(region_options, st.session_state.cached_form_data.get("region", "")),
@@ -968,13 +978,12 @@ def show_saisie_page():
         on_change=on_region_change
     )
 
-    # Commune
     commune_options = [""]
     current_region = st.session_state.cached_form_data.get("region", "")
     if current_region:
         commune_options += sorted(list(st.session_state.villages_data.get(current_region, {}).keys()))
 
-    st.selectbox(
+    commune = st.selectbox(
         "Commune",
         options=commune_options,
         index=get_index_or_default(commune_options, st.session_state.cached_form_data.get("commune", "")),
@@ -982,7 +991,7 @@ def show_saisie_page():
         on_change=on_commune_change
     )
 
-    # Village (filtré mais affiché dans le formulaire)
+       # Village (filtré mais affiché dans le formulaire)
 
     # ✅ Formulaire principal
     with st.form(key=f"leve_form_{st.session_state.form_key}"):
