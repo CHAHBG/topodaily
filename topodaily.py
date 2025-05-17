@@ -908,35 +908,24 @@ def show_dashboard():
 def show_saisie_page():
     st.title("Saisie des Levés Topographiques")
 
-    # Initialisation des variables de session si nécessaire
-    if "form_key" not in st.session_state:
-        st.session_state.form_key = 0
-    if "form_submitted" not in st.session_state:
-        st.session_state.form_submitted = False
-    if "villages_data" not in st.session_state:
-        # Chargement du fichier Excel des villages
-        load_villages_data()
-
-    # Vérification que l'utilisateur est connecté
+    # Authentification
     if not st.session_state.app_state.get("authenticated", False):
         st.warning("Vous devez être connecté pour accéder à cette page.")
         st.session_state.app_state["show_login"] = True
         st.rerun()
         return
 
-    # Gestion des messages de succès après soumission
+    st.info(f"Connecté en tant que: {st.session_state.app_state['username']}")
+
+    # Messages
     if st.session_state.get("form_submitted", False):
         st.success("Levé enregistré avec succès!")
         st.session_state.form_submitted = False
 
-    # Bandeau d'information utilisateur
-    st.info(f"Connecté en tant que: {st.session_state.app_state['username']}")
-
-    # Boutons d'action
+    # Boutons
     col1, col2 = st.columns([1, 3])
     with col1:
         if st.button("Nouveau levé", key="new_leve_btn"):
-            # Réinitialiser le formulaire
             st.session_state.form_key += 1
             st.session_state.cached_form_data = {
                 "region": "", "commune": "", "village": "", "appareil": "",
@@ -948,184 +937,127 @@ def show_saisie_page():
             st.session_state.app_state["current_page"] = "Suivi"
             st.rerun()
 
-    # Initialisation du cache si nécessaire
+    # Initialiser le cache si nécessaire
     if "cached_form_data" not in st.session_state:
         st.session_state.cached_form_data = {
             "region": "", "commune": "", "village": "", "appareil": "",
             "type_leve": 0, "quantite": 1
         }
 
-    # Création de callbacks pour les changements de sélection
+    # 🔄 Sélections dynamiques hors formulaire
+    st.subheader("Sélection de la localisation")
+
     def on_region_change():
-        selected_region = st.session_state.region_select
-        if selected_region != st.session_state.cached_form_data.get("region", ""):
-            st.session_state.cached_form_data["region"] = selected_region
-            st.session_state.cached_form_data["commune"] = ""
-            st.session_state.cached_form_data["village"] = ""
-            st.rerun()
+        st.session_state.cached_form_data["region"] = st.session_state.region_select
+        st.session_state.cached_form_data["commune"] = ""
+        st.session_state.cached_form_data["village"] = ""
+        st.rerun()
 
     def on_commune_change():
-        selected_commune = st.session_state.commune_select
-        if selected_commune != st.session_state.cached_form_data.get("commune", ""):
-            st.session_state.cached_form_data["commune"] = selected_commune
-            st.session_state.cached_form_data["village"] = ""
-            st.rerun()
+        st.session_state.cached_form_data["commune"] = st.session_state.commune_select
+        st.session_state.cached_form_data["village"] = ""
+        st.rerun()
 
-    # Affichage du formulaire des levés topographiques
+    # Région
+    region_options = [""] + sorted(list(st.session_state.villages_data.keys()))
+    st.selectbox(
+        "Région",
+        options=region_options,
+        index=get_index_or_default(region_options, st.session_state.cached_form_data.get("region", "")),
+        key="region_select",
+        on_change=on_region_change
+    )
+
+    # Commune
+    commune_options = [""]
+    current_region = st.session_state.cached_form_data.get("region", "")
+    if current_region:
+        commune_options += sorted(list(st.session_state.villages_data.get(current_region, {}).keys()))
+
+    st.selectbox(
+        "Commune",
+        options=commune_options,
+        index=get_index_or_default(commune_options, st.session_state.cached_form_data.get("commune", "")),
+        key="commune_select",
+        on_change=on_commune_change
+    )
+
+    # Village (filtré mais affiché dans le formulaire)
+
+    # ✅ Formulaire principal
     with st.form(key=f"leve_form_{st.session_state.form_key}"):
         st.subheader("Nouveau levé topographique")
-        # La date du jour est préremplie
-        date = st.date_input("Date du levé", datetime.now())
 
-        # Nom du topographe prérempli avec le nom de l'utilisateur connecté
+        date = st.date_input("Date du levé", datetime.now())
         topographe = st.session_state.app_state["username"]
         st.write(f"Topographe: **{topographe}**")
 
-        # Initialisation du cache si nécessaire
-        if "cached_form_data" not in st.session_state:
-            st.session_state.cached_form_data = {
-                "region": "", "commune": "", "village": "", "appareil": "",
-                "type_leve": 0, "quantite": 1
-            }
-
-        # Disposition en colonnes pour la localisation
-        col1, col2 = st.columns(2)
+        # Village
+        village_options = [""]
+        current_commune = st.session_state.cached_form_data.get("commune", "")
+        if current_region and current_commune:
+            village_options += st.session_state.villages_data[current_region][current_commune]
         
-        with col1:
-            # Sélection de la région (liste déroulante avec recherche)
-            region_options = [""] + sorted(list(st.session_state.villages_data.keys()))
-            region = st.selectbox(
-                "Région",
-                options=region_options,
-                index=get_index_or_default(region_options, st.session_state.cached_form_data.get("region", "")),
-                key="region_select",
-                on_change=on_region_change
-            )
-            
-            # Sélection du village (liste déroulante avec recherche)
-            village_options = [""]
-            current_region = st.session_state.cached_form_data.get("region", "")
-            current_commune = st.session_state.cached_form_data.get("commune", "")
-            
-            if current_region and current_commune:
-                if current_commune in st.session_state.villages_data.get(current_region, {}):
-                    village_options += sorted(st.session_state.villages_data[current_region][current_commune])
-            
-            village = st.selectbox(
-                "Village",
-                options=village_options,
-                index=get_index_or_default(village_options, st.session_state.cached_form_data.get("village", "")),
-                key="village_select"
-            )
-            
-        with col2:
-            # Sélection de la commune (liste déroulante avec recherche)
-            commune_options = [""]
-            current_region = st.session_state.cached_form_data.get("region", "")
-            
-            if current_region:
-                commune_options += sorted(list(st.session_state.villages_data.get(current_region, {}).keys()))
-            
-            commune = st.selectbox(
-                "Commune",
-                options=commune_options,
-                index=get_index_or_default(commune_options, st.session_state.cached_form_data.get("commune", "")),
-                key="commune_select",
-                on_change=on_commune_change
-            )
+        village = st.selectbox(
+            "Village",
+            options=village_options,
+            index=get_index_or_default(village_options, st.session_state.cached_form_data.get("village", "")),
+            key="village_select"
+        )
 
-        # Disposition en colonnes pour les autres champs
         col1, col2 = st.columns(2)
-        
         with col1:
-            # Liste déroulante pour les appareils avec options prédéfinies
             appareil_options = ["LT60H", "TRIMBLE", "AUTRE"]
-            
-            # Gérer la valeur de l'appareil dans le cache
             cached_appareil = st.session_state.cached_form_data.get("appareil", "")
-            
-            # Déterminer l'index initial pour la liste déroulante
             if cached_appareil in appareil_options:
                 appareil_index = appareil_options.index(cached_appareil)
-            elif cached_appareil:  # Si une valeur personnalisée est présente
-                appareil_options.append(cached_appareil)  # Ajouter la valeur personnalisée temporairement
+            elif cached_appareil:
+                appareil_options.append(cached_appareil)
                 appareil_index = len(appareil_options) - 1
             else:
                 appareil_index = 0
-            
-            appareil = st.selectbox(
-                "Appareil utilisé",
-                options=appareil_options,
-                index=appareil_index,
-                key="appareil_select"
-            )
-            
-            # Champ de texte pour "AUTRE" appareil
+
+            appareil = st.selectbox("Appareil utilisé", options=appareil_options, index=appareil_index, key="appareil_select")
             if appareil == "AUTRE":
-                appareil_autre = st.text_input(
-                    "Précisez l'appareil",
-                    value=cached_appareil if cached_appareil not in ["LT60H", "TRIMBLE", "AUTRE"] else "",
-                    placeholder="Nom de l'appareil",
-                    key="appareil_autre"
-                )
+                appareil_autre = st.text_input("Précisez l'appareil", value="" if cached_appareil in appareil_options else cached_appareil, key="appareil_autre")
                 if appareil_autre:
                     appareil = appareil_autre
-        
+
         with col2:
-            # Types de levés prédéfinis avec valeur par défaut
             type_options = ["Batîments", "Champs", "Edifice publique", "Autre"]
             type_index = st.session_state.cached_form_data.get("type_leve", 0)
-            type_leve = st.selectbox(
-                "Type de levé",
-                options=type_options,
-                index=min(type_index, len(type_options) - 1)  # Éviter l'index out of range
-            )
+            type_leve = st.selectbox("Type de levé", options=type_options, index=type_index)
 
-        # Quantité avec valeur minimale et par défaut
-        quantite = st.number_input(
-            "Quantité",
-            min_value=1,
-            value=st.session_state.cached_form_data.get("quantite", 1),
-            step=1
-        )
-
-        # Bouton de soumission
+        quantite = st.number_input("Quantité", min_value=1, value=st.session_state.cached_form_data.get("quantite", 1), step=1)
         submit = st.form_submit_button("Enregistrer le levé")
 
         if submit:
-            # Mise en cache des données en cas d'échec
             st.session_state.cached_form_data = {
-                "region": region, "commune": commune, "village": village,
+                "region": current_region, "commune": current_commune, "village": village,
                 "appareil": appareil, "type_leve": type_options.index(type_leve),
                 "quantite": quantite
             }
 
-            # Validation
             if not village:
                 st.error("Veuillez sélectionner un village.")
-            elif not region:
+            elif not current_region:
                 st.error("Veuillez sélectionner une région.")
-            elif not commune:
+            elif not current_commune:
                 st.error("Veuillez sélectionner une commune.")
             else:
-                # Conversion de la date au format string
                 date_str = date.strftime("%Y-%m-%d")
-
-                # Enregistrement du levé
-                success = add_leve(date_str, village, region, commune, type_leve, quantite, appareil, topographe)
+                success = add_leve(date_str, village, current_region, current_commune, type_leve, quantite, appareil, topographe)
                 if success:
-                    # Marquer comme soumis pour afficher le message de succès
                     st.session_state.form_submitted = True
-                    # Réinitialiser le cache
                     st.session_state.cached_form_data = {
                         "region": "", "commune": "", "village": "", "appareil": "",
                         "type_leve": 0, "quantite": 1
                     }
-                    # Incrémenter la clé pour réinitialiser le formulaire
                     st.session_state.form_key += 1
                     st.rerun()
                 else:
                     st.error("Erreur lors de l'enregistrement du levé.")
+
 
 
 def load_villages_data():
