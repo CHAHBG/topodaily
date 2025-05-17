@@ -520,7 +520,7 @@ def show_login_page():
                 st.error("Nom d'utilisateur ou mot de passe incorrect.")
 
     st.markdown("---")
-    st.markdown("Pas encore de compte? [👇Cliquez sur le bouton Créer un compte👇 ")
+    st.markdown("Pas encore de compte? 👇Cliquez sur le bouton Créer un compte👇 ")
 
     if st.button("Créer un compte"):
         st.session_state.app_state["show_login"] = False
@@ -560,7 +560,17 @@ def show_registration_page():
                     st.error(message)
 
     if st.button("Retour à la connexion"):
-        st.session_state.show_registration = False
+    if st.session_state.get("app_state", {}).get("authenticated", False):
+        st.session_state.app_state["current_page"] = "Saisie des Levés"
+        st.rerun()
+    else:
+        # Forcer l'affichage de la page de connexion
+        if "app_state" not in st.session_state:
+            st.session_state.app_state = {}
+
+        st.session_state.app_state["show_login"] = True
+        st.session_state.app_state["show_registration"] = False
+        st.warning("Veuillez vous connecter pour saisir des levés.")
         st.rerun()
 
 
