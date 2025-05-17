@@ -913,6 +913,9 @@ def show_saisie_page():
         st.session_state.form_key = 0
     if "form_submitted" not in st.session_state:
         st.session_state.form_submitted = False
+    if "villages_data" not in st.session_state:
+        # Chargement du fichier Excel des villages
+        load_villages_data()
 
     # Vérification que l'utilisateur est connecté
     if not st.session_state.app_state.get("authenticated", False):
@@ -936,7 +939,7 @@ def show_saisie_page():
             # Réinitialiser le formulaire
             st.session_state.form_key += 1
             st.session_state.cached_form_data = {
-                "village": "", "region": "", "commune": "", "appareil": "",
+                "region": "", "commune": "", "village": "", "appareil": "",
                 "type_leve": 0, "quantite": 1
             }
             st.rerun()
@@ -955,40 +958,63 @@ def show_saisie_page():
         topographe = st.session_state.app_state["username"]
         st.write(f"Topographe: **{topographe}**")
 
-        # Disposition en colonnes
-        col1, col2 = st.columns(2)
-
         # Initialisation du cache si nécessaire
         if "cached_form_data" not in st.session_state:
             st.session_state.cached_form_data = {
-                "village": "", "region": "", "commune": "", "appareil": "",
+                "region": "", "commune": "", "village": "", "appareil": "",
                 "type_leve": 0, "quantite": 1
             }
 
-        # Utilisation des valeurs en cache ou défaut
+        # Sélection de la région (liste déroulante avec recherche)
+        region_options = [""] + list(st.session_state.villages_data.keys())
+        region = st.selectbox(
+            "Région",
+            options=region_options,
+            index=get_index_or_default(region_options, st.session_state.cached_form_data.get("region", "")),
+            key="region_select"
+        )
+
+        # Sélection de la commune (liste déroulante avec recherche)
+        commune_options = [""]
+        if region:
+            commune_options += list(st.session_state.villages_data[region].keys())
+        
+        commune = st.selectbox(
+            "Commune",
+            options=commune_options,
+            index=get_index_or_default(commune_options, st.session_state.cached_form_data.get("commune", "")),
+            key="commune_select"
+        )
+
+        # Sélection du village (liste déroulante avec recherche)
+        village_options = [""]
+        if region and commune:
+            village_options += st.session_state.villages_data[region][commune]
+        
+        village = st.selectbox(
+            "Village",
+            options=village_options,
+            index=get_index_or_default(village_options, st.session_state.cached_form_data.get("village", "")),
+            key="village_select"
+        )
+
+        # Disposition en colonnes pour les autres champs
+        col1, col2 = st.columns(2)
+        
         with col1:
-            village = st.text_input("Village",
-                                    value=st.session_state.cached_form_data.get("village", ""),
-                                    placeholder="Nom du village")
-            region = st.text_input("Région",
-                                   value=st.session_state.cached_form_data.get("region", ""),
-                                   placeholder="Nom de la région")
-        with col2:
-            commune = st.text_input("Commune",
-                                    value=st.session_state.cached_form_data.get("commune", ""),
-                                    placeholder="Nom de la commune")
             appareil = st.text_input("Appareil utilisé",
                                      value=st.session_state.cached_form_data.get("appareil", ""),
                                      placeholder="Modèle de l'appareil")
-
-        # Types de levés prédéfinis avec valeur par défaut
-        type_options = ["Batîments", "Champs", "Edifice publique", "Autre"]
-        type_index = st.session_state.cached_form_data.get("type_leve", 0)
-        type_leve = st.selectbox(
-            "Type de levé",
-            options=type_options,
-            index=min(type_index, len(type_options) - 1)  # Éviter l'index out of range
-        )
+        
+        with col2:
+            # Types de levés prédéfinis avec valeur par défaut
+            type_options = ["Batîments", "Champs", "Edifice publique", "Autre"]
+            type_index = st.session_state.cached_form_data.get("type_leve", 0)
+            type_leve = st.selectbox(
+                "Type de levé",
+                options=type_options,
+                index=min(type_index, len(type_options) - 1)  # Éviter l'index out of range
+            )
 
         # Quantité avec valeur minimale et par défaut
         quantite = st.number_input(
@@ -1004,14 +1030,18 @@ def show_saisie_page():
         if submit:
             # Mise en cache des données en cas d'échec
             st.session_state.cached_form_data = {
-                "village": village, "region": region, "commune": commune,
+                "region": region, "commune": commune, "village": village,
                 "appareil": appareil, "type_leve": type_options.index(type_leve),
                 "quantite": quantite
             }
 
             # Validation
             if not village:
-                st.error("Veuillez entrer le nom du village.")
+                st.error("Veuillez sélectionner un village.")
+            elif not region:
+                st.error("Veuillez sélectionner une région.")
+            elif not commune:
+                st.error("Veuillez sélectionner une commune.")
             else:
                 # Conversion de la date au format string
                 date_str = date.strftime("%Y-%m-%d")
@@ -1023,7 +1053,7 @@ def show_saisie_page():
                     st.session_state.form_submitted = True
                     # Réinitialiser le cache
                     st.session_state.cached_form_data = {
-                        "village": "", "region": "", "commune": "", "appareil": "",
+                        "region": "", "commune": "", "village": "", "appareil": "",
                         "type_leve": 0, "quantite": 1
                     }
                     # Incrémenter la clé pour réinitialiser le formulaire
@@ -1032,6 +1062,61 @@ def show_saisie_page():
                 else:
                     st.error("Erreur lors de l'enregistrement du levé.")
 
+
+def load_villages_data():
+    """Charge les données des villages depuis le fichier Excel"""
+    import pandas as pd
+    import io
+
+    try:
+        # Lire le fichier Excel
+        excel_file = "Villages.xlsx"
+        df = pd.read_excel(excel_file)
+        
+        # Nettoyer les noms de colonnes (convertir en minuscules)
+        df.columns = [col.lower() for col in df.columns]
+        
+        # Structurer les données en hiérarchie: région -> commune -> villages
+        villages_data = {}
+        
+        for _, row in df.iterrows():
+            region = row['region']
+            commune = row['commune']
+            village = row['village']
+            
+            # Initialiser la région si elle n'existe pas encore
+            if region not in villages_data:
+                villages_data[region] = {}
+            
+            # Initialiser la commune si elle n'existe pas encore
+            if commune not in villages_data[region]:
+                villages_data[region][commune] = []
+            
+            # Ajouter le village à la commune
+            villages_data[region][commune].append(village)
+        
+        # Trier les listes de villages par ordre alphabétique
+        for region in villages_data:
+            for commune in villages_data[region]:
+                villages_data[region][commune].sort()
+        
+        # Stocker les données dans la session
+        st.session_state.villages_data = villages_data
+        return True
+    
+    except Exception as e:
+        # En cas d'erreur, créer une structure vide
+        st.session_state.villages_data = {}
+        st.error(f"Erreur lors du chargement des villages: {str(e)}")
+        return False
+
+
+def get_index_or_default(options_list, value, default=0):
+    """Récupère l'index d'une valeur dans une liste, ou renvoie la valeur par défaut"""
+    try:
+        return options_list.index(value)
+    except ValueError:
+        return default
 
 def show_login_form():
     """Fonction séparée pour afficher le formulaire de connexion"""
