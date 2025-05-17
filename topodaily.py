@@ -718,16 +718,17 @@ def show_dashboard():
             col1, col2 = st.columns(2)
 
             with col1:
-                st.subheader("Levés par Type")
+                st.subheader("Levés par Type (Quantité Totale)")
                 if not leves_filtered.empty:
-                    type_counts = leves_filtered['type'].value_counts().reset_index()
-                    type_counts.columns = ['Type', 'Nombre']
-
-                    fig = px.pie(type_counts, values='Nombre', names='Type', title='Répartition des types de levés', hole=0.3)
-                    fig.update_traces(textposition='inside', textinfo='percent')
+                    type_counts = leves_filtered.groupby('type')['quantite'].sum().reset_index()
+                    type_counts.columns = ['Type', 'Quantité']
+            
+                    fig = px.pie(type_counts, values='Quantité', names='Type', title='Répartition des types de levés (quantité)', hole=0.3)
+                    fig.update_traces(textposition='inside', textinfo='percent+label')
                     st.plotly_chart(fig, use_container_width=True, height=300)
                 else:
                     st.info("Aucune donnée disponible pour ce filtre.")
+
 
             with col2:
                 st.subheader("Top des Topographes")
