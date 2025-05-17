@@ -1017,24 +1017,20 @@ def show_saisie_page():
     if "form_submitted" not in st.session_state:
         st.session_state.form_submitted = False
 
-    # Bouton pour aller à la page d'inscription visible seulement si non authentifié
-    if not st.session_state.get("authenticated", False):
-        if st.button("S'inscrire", key="signup_redirect"):
-            st.session_state.page = "signup"
-            st.rerun()
+    # Vérification que l'utilisateur est connecté
+    if not st.session_state.app_state.get("authenticated", False):
+        st.warning("Vous devez être connecté pour accéder à cette page.")
+        st.session_state.app_state["show_login"] = True
+        st.rerun()
+        return
 
     # Gestion des messages de succès après soumission
     if st.session_state.get("form_submitted", False):
         st.success("Levé enregistré avec succès!")
         st.session_state.form_submitted = False
 
-    # Vérification que l'utilisateur est connecté
-    if not st.session_state.get("authenticated", False):
-        show_login_form()
-        return
-
     # Bandeau d'information utilisateur
-    st.info(f"Connecté en tant que: {st.session_state.username}")
+    st.info(f"Connecté en tant que: {st.session_state.app_state['username']}")
 
     # Boutons d'action
     col1, col2 = st.columns([1, 3])
@@ -1049,7 +1045,7 @@ def show_saisie_page():
             st.rerun()
     with col2:
         if st.button("Voir mes levés", key="view_leves_btn"):
-            st.session_state.page = "view_leves"
+            st.session_state.app_state["current_page"] = "Suivi"
             st.rerun()
 
     # Affichage du formulaire des levés topographiques
@@ -1059,7 +1055,7 @@ def show_saisie_page():
         date = st.date_input("Date du levé", datetime.now())
 
         # Nom du topographe prérempli avec le nom de l'utilisateur connecté
-        topographe = st.session_state.username
+        topographe = st.session_state.app_state["username"]
         st.write(f"Topographe: **{topographe}**")
 
         # Disposition en colonnes
@@ -1171,29 +1167,10 @@ def show_suivi_page():
     st.title("Suivi des Levés Topographiques")
 
     # Vérification que l'utilisateur est connecté
-    if not st.session_state.get("authenticated", False):
+    if not st.session_state.app_state.get("authenticated", False):
         st.warning("Vous devez être connecté pour accéder au suivi.")
-
-        # Afficher le formulaire de connexion directement sur cette page
-        with st.form("login_form_embed_suivi"):
-            st.subheader("Connexion")
-            username = st.text_input("Nom d'utilisateur")
-            password = st.text_input("Mot de passe", type="password")
-            submit = st.form_submit_button("Se connecter")
-
-            if submit:
-                user = verify_user(username, password)
-                if user:
-                    st.session_state.user = user
-                    st.session_state.username = username
-                    st.session_state.authenticated = True
-                    st.success(f"Connexion réussie! Bienvenue {username}!")
-                    st.rerun()
-                else:
-                    st.error("Nom d'utilisateur ou mot de passe incorrect.")
-
-        st.markdown("---")
-        st.markdown("Pas encore de compte? Cliquez sur 'S'inscrire' dans le menu latéral.")
+        st.session_state.app_state["show_login"] = True
+        st.rerun()
         return
 
     # Récupération des options de filtre
@@ -1233,12 +1210,12 @@ def show_suivi_page():
 
             # Pour les administrateurs, afficher tous les topographes
             # Pour les autres, voir uniquement ses propres levés
-            if st.session_state.user["role"] == "administrateur":
+            if st.session_state.app_state["user"]["role"] == "administrateur":
                 topo_options = ["Tous"] + filter_options["topographes"]
                 topographe = st.selectbox("Topographe", options=topo_options)
                 topographe = None if topographe == "Tous" else topographe
             else:
-                topographe = st.session_state.username
+                topographe = st.session_state.app_state["username"]
                 st.write(f"Topographe: **{topographe}**")
 
     # Récupération des levés filtrés
@@ -1291,7 +1268,7 @@ def show_suivi_page():
             st.success("Export réussi!")
 
         # Pour les utilisateurs normaux, possibilité de supprimer ses propres levés
-        if st.session_state.user["role"] != "administrateur":
+        if st.session_state.app_state["user"]["role"] != "administrateur":
             st.subheader("Gestion de mes levés")
 
             with st.form("delete_own_leve_form"):
@@ -1299,7 +1276,7 @@ def show_suivi_page():
                 delete_submit = st.form_submit_button("Supprimer mon levé")
 
                 if delete_submit:
-                    success, message = delete_user_leve(leve_id, st.session_state.username)
+                    success, message = delete_user_leve(leve_id, st.session_state.app_state["username"])
                     if success:
                         st.success(message)
                         st.rerun()
@@ -1307,7 +1284,7 @@ def show_suivi_page():
                         st.error(message)
 
         # Pour les administrateurs, possibilité de supprimer des levés
-        if st.session_state.user["role"] == "administrateur":
+        if st.session_state.app_state["user"]["role"] == "administrateur":
             st.subheader("Gestion des Levés (Admin)")
 
             with st.form("delete_leve_form"):
@@ -1330,12 +1307,14 @@ def show_account_page():
     st.title("Mon Compte")
 
     # Vérification que l'utilisateur est connecté
-    if not st.session_state.get("authenticated", False):
+    if not st.session_state.app_state.get("authenticated", False):
         st.warning("Vous devez être connecté pour accéder à votre compte.")
+        st.session_state.app_state["show_login"] = True
+        st.rerun()
         return
 
-    username = st.session_state.username
-    role = st.session_state.user["role"]
+    username = st.session_state.app_state["username"]
+    role = st.session_state.app_state["user"]["role"]
 
     st.write(f"**Nom d'utilisateur:** {username}")
     st.write(f"**Rôle:** {role}")
