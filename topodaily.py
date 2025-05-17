@@ -520,7 +520,7 @@ def show_login_page():
                 st.error("Nom d'utilisateur ou mot de passe incorrect.")
 
     st.markdown("---")
-    st.markdown("Pas encore de compte? [Créer un compte](#creer-un-compte)")
+    st.markdown("Pas encore de compte? [👇Cliquez sur le bouton Créer un compte👇 )
 
     if st.button("Créer un compte"):
         st.session_state.app_state["show_login"] = False
