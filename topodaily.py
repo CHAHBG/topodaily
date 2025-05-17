@@ -905,13 +905,46 @@ def show_dashboard():
 
 
 # Fonction pour afficher la page de saisie des levés
+from datetime import datetime
+import streamlit as st
+
+def get_index_or_default(options, value):
+    """Retourne l'index de la valeur dans options ou 0 si non trouvé."""
+    try:
+        return options.index(value)
+    except ValueError:
+        return 0
+
 def show_saisie_page():
     st.title("Saisie des Levés Topographiques")
+
+    # --- Initialisation des clés de session pour éviter les erreurs ---
+    if "form_key" not in st.session_state:
+        st.session_state.form_key = 0
+
+    if "cached_form_data" not in st.session_state:
+        st.session_state.cached_form_data = {
+            "region": "", "commune": "", "village": "", "appareil": "",
+            "type_leve": 0, "quantite": 1
+        }
+
+    if "form_submitted" not in st.session_state:
+        st.session_state.form_submitted = False
+
+    if "app_state" not in st.session_state:
+        st.session_state.app_state = {
+            "authenticated": False,
+            "username": "",
+            "show_login": False,
+            "current_page": "Saisie"
+        }
+
     if "villages_data" not in st.session_state:
-            success = load_villages_data()
-            if not success:
-                st.error("Impossible de charger les données des villages.")
-                return
+        success = load_villages_data()
+        if not success:
+            st.error("Impossible de charger les données des villages.")
+            return
+
     # Authentification
     if not st.session_state.app_state.get("authenticated", False):
         st.warning("Vous devez être connecté pour accéder à cette page.")
@@ -941,13 +974,6 @@ def show_saisie_page():
             st.session_state.app_state["current_page"] = "Suivi"
             st.rerun()
 
-    # Initialiser le cache si nécessaire
-    if "cached_form_data" not in st.session_state:
-        st.session_state.cached_form_data = {
-            "region": "", "commune": "", "village": "", "appareil": "",
-            "type_leve": 0, "quantite": 1
-        }
-
     # 🔄 Sélections dynamiques hors formulaire
     st.subheader("Sélection de la localisation")
 
@@ -956,23 +982,21 @@ def show_saisie_page():
         st.session_state._should_rerun = False
         st.rerun()
 
-    # Callbacks corrigés
     def on_region_change():
         selected_region = st.session_state.region_select
         if selected_region != st.session_state.cached_form_data.get("region", ""):
             st.session_state.cached_form_data["region"] = selected_region
             st.session_state.cached_form_data["commune"] = ""
             st.session_state.cached_form_data["village"] = ""
-            st.session_state._should_rerun = True  # On pose un flag ici
+            st.session_state._should_rerun = True
 
     def on_commune_change():
         selected_commune = st.session_state.commune_select
         if selected_commune != st.session_state.cached_form_data.get("commune", ""):
             st.session_state.cached_form_data["commune"] = selected_commune
             st.session_state.cached_form_data["village"] = ""
-            st.session_state._should_rerun = True  # Ici aussi
+            st.session_state._should_rerun = True
 
-    # Affichage des sélecteurs (extrait)
     region_options = [""] + sorted(list(st.session_state.villages_data.keys()))
     region = st.selectbox(
         "Région",
@@ -995,8 +1019,6 @@ def show_saisie_page():
         on_change=on_commune_change
     )
 
-       # Village (filtré mais affiché dans le formulaire)
-
     # ✅ Formulaire principal
     with st.form(key=f"leve_form_{st.session_state.form_key}"):
         st.subheader("Nouveau levé topographique")
@@ -1005,12 +1027,11 @@ def show_saisie_page():
         topographe = st.session_state.app_state["username"]
         st.write(f"Topographe: **{topographe}**")
 
-        # Village
         village_options = [""]
         current_commune = st.session_state.cached_form_data.get("commune", "")
         if current_region and current_commune:
             village_options += st.session_state.villages_data[current_region][current_commune]
-        
+
         village = st.selectbox(
             "Village",
             options=village_options,
@@ -1070,8 +1091,6 @@ def show_saisie_page():
                     st.rerun()
                 else:
                     st.error("Erreur lors de l'enregistrement du levé.")
-
-
 
 def load_villages_data():
     """Charge les données des villages depuis le fichier Excel"""
