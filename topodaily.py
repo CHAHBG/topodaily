@@ -658,7 +658,7 @@ def show_navigation_sidebar():
 def show_dashboard():
     st.title("Dashboard des Levés Topographiques")
 
-    @st.cache_data(ttl=600)
+    @st.cache_data(ttl=60)
     def get_cached_leves():
         return get_all_leves()
 
