@@ -1092,6 +1092,7 @@ def show_saisie_page():
                 date_str = date.strftime("%Y-%m-%d")
                 success = add_leve(date_str, village, current_region, current_commune, type_leve, quantite, appareil, topographe)
                 if success:
+                    st.cache_data.clear()
                     st.session_state.form_submitted = True
                     st.session_state.cached_form_data = {
                         "region": "", "commune": "", "village": "", "appareil": "",
