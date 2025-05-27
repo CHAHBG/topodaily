@@ -554,8 +554,8 @@ def show_registration_page():
                 success, message = add_user(username, password, email, phone)
                 if success:
                     st.success(message)
-                        st.session_state.app_state["show_login"] = True
-                        st.session_state.app_state["show_registration"] = False
+                    st.session_state.app_state["show_login"] = True
+                    st.session_state.app_state["show_registration"] = False
                     st.rerun()
                 else:
                     st.error(message)
