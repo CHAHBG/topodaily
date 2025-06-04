@@ -1,7 +1,8 @@
 import streamlit as st
 from db import init_db
 from auth import (
-    verify_user, get_user_role, add_user, delete_user, change_password, get_users
+    verify_user, get_user_role, add_user, delete_user, change_password, get_users,
+    validate_email, validate_phone  # Ajout des fonctions de validation
 )
 from leves import (
     add_leve, get_all_leves, get_filtered_leves, get_leves_by_topographe,
@@ -55,9 +56,9 @@ def show_registration_page():
                 st.error("Le nom d'utilisateur et le mot de passe sont obligatoires.")
             elif password != confirm_password:
                 st.error("Les mots de passe ne correspondent pas.")
-            elif email and not add_user.validate_email(email):
+            elif email and not validate_email(email):  # Correction: utilisation directe de validate_email
                 st.error("Format d'email invalide.")
-            elif phone and not add_user.validate_phone(phone):
+            elif phone and not validate_phone(phone):  # Correction: utilisation directe de validate_phone
                 st.error("Format de numéro de téléphone invalide.")
             else:
                 success, message = add_user(username, password, email, phone)
@@ -84,6 +85,7 @@ def show_navigation_sidebar():
         pages = ["Dashboard", "Saisie des Levés", "Suivi", "Mon Compte"]
         current_idx = pages.index(app_state["current_page"]) if app_state["current_page"] in pages else 0
         page = st.sidebar.radio("Pages", pages, index=current_idx)
+        
         # Menu d'administration pour l'admin
         if user_role == "administrateur":
             admin_page = st.sidebar.radio(
@@ -95,6 +97,7 @@ def show_navigation_sidebar():
                 page = "Admin Users"
             elif admin_page == "Gestion des Données":
                 page = "Admin Data"
+        
         if st.sidebar.button("Déconnexion"):
             st.session_state.app_state = {
                 "authenticated": False,
@@ -120,9 +123,11 @@ def show_navigation_sidebar():
                 st.session_state.app_state["show_login"] = False
                 st.session_state.app_state["show_registration"] = True
                 st.rerun()
+    
     if app_state["current_page"] != page:
         app_state["current_page"] = page
         st.rerun()
+    
     return page
 
 def main():
@@ -132,7 +137,9 @@ def main():
         layout="wide",
         initial_sidebar_state="expanded"
     )
+    
     init_db()
+    
     if "app_state" not in st.session_state:
         st.session_state.app_state = {
             "authenticated": False,
@@ -142,15 +149,20 @@ def main():
             "show_login": False,
             "show_registration": False
         }
+    
     app_state = st.session_state.app_state
+    
     if app_state["show_login"]:
         show_login_page()
         return
+    
     if app_state["show_registration"]:
         show_registration_page()
         return
+    
     # Affichage de la barre de navigation
     current_page = show_navigation_sidebar()
+    
     # Affichage de la page correspondante
     if current_page == "Dashboard":
         show_dashboard(get_all_leves, get_filter_options)
@@ -161,7 +173,8 @@ def main():
     elif current_page == "Mon Compte":
         show_account_page(get_leves_by_topographe, verify_user, change_password)
     elif current_page == "Admin Users":
-        show_admin_users_page(get_users, delete_user, add_user, add_user.validate_email, add_user.validate_phone)
+        # Correction: passage des fonctions de validation directement
+        show_admin_users_page(get_users, delete_user, add_user, validate_email, validate_phone)
     elif current_page == "Admin Data":
         show_admin_data_page(get_all_leves, get_users)
     else:
