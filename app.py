@@ -2,7 +2,7 @@ import streamlit as st
 from db import init_db
 from auth import (
     verify_user, get_user_role, add_user, delete_user, change_password, get_users,
-    validate_email, validate_phone  # Ajout des fonctions de validation
+    validate_email, validate_phone
 )
 from leves import (
     add_leve, get_all_leves, get_filtered_leves, get_leves_by_topographe,
@@ -10,7 +10,7 @@ from leves import (
 )
 from villages import load_villages_data, get_index_or_default
 
-# Import des pages
+# Import des pages - assurez-vous que ces imports ne créent pas de pages Streamlit
 from pages.dashboard import show_dashboard
 from pages.saisie import show_saisie_page
 from pages.suivi import show_suivi_page
@@ -56,9 +56,9 @@ def show_registration_page():
                 st.error("Le nom d'utilisateur et le mot de passe sont obligatoires.")
             elif password != confirm_password:
                 st.error("Les mots de passe ne correspondent pas.")
-            elif email and not validate_email(email):  # Correction: utilisation directe de validate_email
+            elif email and not validate_email(email):
                 st.error("Format d'email invalide.")
-            elif phone and not validate_phone(phone):  # Correction: utilisation directe de validate_phone
+            elif phone and not validate_phone(phone):
                 st.error("Format de numéro de téléphone invalide.")
             else:
                 success, message = add_user(username, password, email, phone)
@@ -75,19 +75,42 @@ def show_registration_page():
         st.rerun()
 
 def show_navigation_sidebar():
+    # Masquer la navigation par défaut de Streamlit
+    st.markdown("""
+    <style>
+        .css-1d391kg {display: none}
+        .stDeployButton {display: none}
+        footer {visibility: hidden;}
+        .stDecoration {display: none;}
+        header {visibility: hidden;}
+        #MainMenu {visibility: hidden;}
+        .viewerBadge_container__1QSob {display: none;}
+        .css-15zrgzn {display: none}
+        .css-eczf16 {display: none}
+        .css-jn99sy {display: none}
+        .css-14xtw13.e8zbici0 {display: none}
+        section[data-testid="stSidebar"] > div:first-child {
+            padding-top: 0rem;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
     st.sidebar.title("Navigation")
     app_state = st.session_state.app_state
+    
     if app_state["authenticated"]:
         user_role = app_state["user"]["role"]
         username = app_state["username"]
         st.sidebar.write(f"Connecté en tant que: **{username}**")
         st.sidebar.write(f"Rôle: **{user_role}**")
+        
         pages = ["Dashboard", "Saisie des Levés", "Suivi", "Mon Compte"]
         current_idx = pages.index(app_state["current_page"]) if app_state["current_page"] in pages else 0
         page = st.sidebar.radio("Pages", pages, index=current_idx)
         
         # Menu d'administration pour l'admin
         if user_role == "administrateur":
+            st.sidebar.markdown("---")
             admin_page = st.sidebar.radio(
                 "Administration",
                 ["Aucune", "Gestion des Utilisateurs", "Gestion des Données"],
@@ -98,6 +121,7 @@ def show_navigation_sidebar():
             elif admin_page == "Gestion des Données":
                 page = "Admin Data"
         
+        st.sidebar.markdown("---")
         if st.sidebar.button("Déconnexion"):
             st.session_state.app_state = {
                 "authenticated": False,
@@ -112,6 +136,7 @@ def show_navigation_sidebar():
         page = st.sidebar.radio("Pages", ["Dashboard"], index=0)
         st.sidebar.markdown("---")
         st.sidebar.info("Connectez-vous pour accéder à toutes les fonctionnalités.")
+        
         col1, col2 = st.sidebar.columns(2)
         with col1:
             if st.button("Se connecter"):
@@ -131,12 +156,32 @@ def show_navigation_sidebar():
     return page
 
 def main():
+    # Configuration de la page - IMPORTANT: doit être la première commande Streamlit
     st.set_page_config(
         page_title="Gestion des Levés Topographiques",
         page_icon="📏",
         layout="wide",
         initial_sidebar_state="expanded"
     )
+    
+    # Masquer les éléments indésirables de Streamlit
+    hide_streamlit_style = """
+    <style>
+        #root > div:nth-child(1) > div > div > div > div > section > div {padding-top: 0rem;}
+        .css-1d391kg {display: none}
+        .stDeployButton {display: none}
+        footer {visibility: hidden;}
+        .stDecoration {display: none;}
+        header {visibility: hidden;}
+        #MainMenu {visibility: hidden;}
+        .viewerBadge_container__1QSob {display: none;}
+        .css-15zrgzn {display: none}
+        .css-eczf16 {display: none}
+        .css-jn99sy {display: none}
+        .css-14xtw13.e8zbici0 {display: none}
+    </style>
+    """
+    st.markdown(hide_streamlit_style, unsafe_allow_html=True)
     
     init_db()
     
@@ -173,7 +218,6 @@ def main():
     elif current_page == "Mon Compte":
         show_account_page(get_leves_by_topographe, verify_user, change_password)
     elif current_page == "Admin Users":
-        # Correction: passage des fonctions de validation directement
         show_admin_users_page(get_users, delete_user, add_user, validate_email, validate_phone)
     elif current_page == "Admin Data":
         show_admin_data_page(get_all_leves, get_users)
