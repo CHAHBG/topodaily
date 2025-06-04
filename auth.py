@@ -1,10 +1,23 @@
 import hashlib
+import re
 from db import get_connection, get_engine
 import psycopg2
 import pandas as pd
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
+
+def validate_email(email):
+    """Validate email format"""
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(email_pattern, email) is not None
+
+def validate_phone(phone):
+    """Validate phone number format (basic validation)"""
+    # Remove spaces and common separators
+    phone_clean = re.sub(r'[\s\-\(\)]+', '', phone)
+    # Check if it contains only digits and has reasonable length
+    return phone_clean.isdigit() and 8 <= len(phone_clean) <= 15
 
 def verify_user(username, password):
     conn = get_connection()
