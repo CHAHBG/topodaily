@@ -78,20 +78,12 @@ def show_navigation_sidebar():
     # Masquer la navigation par défaut de Streamlit
     st.markdown("""
     <style>
-        .css-1d391kg {display: none}
-        .stDeployButton {display: none}
-        footer {visibility: hidden;}
-        .stDecoration {display: none;}
-        header {visibility: hidden;}
-        #MainMenu {visibility: hidden;}
-        .viewerBadge_container__1QSob {display: none;}
-        .css-15zrgzn {display: none}
-        .css-eczf16 {display: none}
-        .css-jn99sy {display: none}
-        .css-14xtw13.e8zbici0 {display: none}
-        section[data-testid="stSidebar"] > div:first-child {
-            padding-top: 0rem;
-        }
+    /* Masquer la navigation des pages générée automatiquement par Streamlit */
+    section[data-testid="stSidebar"] nav {display: none;}
+    /* Masquer le menu principal Streamlit en haut à gauche */
+    #MainMenu {visibility: hidden;}
+    /* Masquer le header Streamlit */
+    header {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
     
