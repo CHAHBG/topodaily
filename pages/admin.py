@@ -4,13 +4,26 @@ import pandas as pd
 def show_admin_users_page(get_users, delete_user, add_user, validate_email, validate_phone):
     st.title("Administration - Gestion des Utilisateurs")
 
-    if not st.session_state.get("authenticated", False) or st.session_state.user["role"] != "administrateur":
+    # Fixed: Access app_state properly from session_state
+    app_state = st.session_state.get("app_state", {})
+    
+    # Check authentication and role
+    if not app_state.get("authenticated", False):
+        st.error("Vous devez être connecté pour accéder à cette page.")
+        return
+    
+    user_data = app_state.get("user", {})
+    user_role = user_data.get("role", "")
+    
+    if user_role != "administrateur":
         st.error("Accès non autorisé. Cette page est réservée aux administrateurs.")
         return
 
+    # Get users data
     users_df = get_users()
 
     if not users_df.empty:
+        # Rename columns for better display
         users_df = users_df.rename(columns={
             'id': 'ID',
             'username': 'Nom d\'utilisateur',
@@ -20,11 +33,14 @@ def show_admin_users_page(get_users, delete_user, add_user, validate_email, vali
             'created_at': 'Date de création'
         })
 
+        # Format date column if it exists
         if 'Date de création' in users_df.columns:
             users_df['Date de création'] = pd.to_datetime(users_df['Date de création']).dt.strftime('%d/%m/%Y %H:%M')
 
+        st.subheader("Liste des Utilisateurs")
         st.dataframe(users_df, use_container_width=True)
 
+        # Delete user section
         st.subheader("Supprimer un utilisateur")
         with st.form("delete_user_form"):
             user_id = st.number_input("ID de l'utilisateur à supprimer", min_value=1, step=1)
@@ -40,6 +56,7 @@ def show_admin_users_page(get_users, delete_user, add_user, validate_email, vali
     else:
         st.info("Aucun utilisateur n'a été trouvé.")
 
+    # Add new user section
     st.subheader("Ajouter un nouvel utilisateur")
     with st.form("add_user_form"):
         username = st.text_input("Nom d'utilisateur")
@@ -68,7 +85,18 @@ def show_admin_users_page(get_users, delete_user, add_user, validate_email, vali
 def show_admin_data_page(get_all_leves, get_users):
     st.title("Administration - Gestion des Données")
 
-    if not st.session_state.get("authenticated", False) or st.session_state.user["role"] != "administrateur":
+    # Fixed: Access app_state properly from session_state
+    app_state = st.session_state.get("app_state", {})
+    
+    # Check authentication and role
+    if not app_state.get("authenticated", False):
+        st.error("Vous devez être connecté pour accéder à cette page.")
+        return
+    
+    user_data = app_state.get("user", {})
+    user_role = user_data.get("role", "")
+    
+    if user_role != "administrateur":
         st.error("Accès non autorisé. Cette page est réservée aux administrateurs.")
         return
 
@@ -84,6 +112,7 @@ def show_admin_data_page(get_all_leves, get_users):
 
     st.subheader("Statistiques Globales")
 
+    # Get data
     leves_df = get_all_leves()
     users_df = get_users()
 
@@ -94,9 +123,17 @@ def show_admin_data_page(get_all_leves, get_users):
         with col2:
             st.metric("Nombre de levés", len(leves_df))
         with col3:
-            st.metric("Quantité totale", f"{leves_df['quantite'].sum():,.0f}")
+            # Check if 'quantite' column exists
+            if 'quantite' in leves_df.columns:
+                st.metric("Quantité totale", f"{leves_df['quantite'].sum():,.0f}")
+            else:
+                st.metric("Quantité totale", "N/A")
         with col4:
-            nb_villages = leves_df['village'].nunique()
-            st.metric("Nombre de villages", nb_villages)
+            # Check if 'village' column exists
+            if 'village' in leves_df.columns:
+                nb_villages = leves_df['village'].nunique()
+                st.metric("Nombre de villages", nb_villages)
+            else:
+                st.metric("Nombre de villages", "N/A")
     else:
         st.info("Pas assez de données pour afficher les statistiques.")
