@@ -45,6 +45,8 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
+    
+    # Mise à jour de la table leves pour inclure le superviseur
     c.execute('''
     CREATE TABLE IF NOT EXISTS leves (
         id SERIAL PRIMARY KEY,
@@ -56,14 +58,32 @@ def init_db():
         quantite INTEGER NOT NULL,
         appareil VARCHAR(100),
         topographe VARCHAR(100) NOT NULL,
+        superviseur VARCHAR(100) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
+    
+    # Ajouter la colonne superviseur si elle n'existe pas déjà
+    try:
+        c.execute("ALTER TABLE leves ADD COLUMN superviseur VARCHAR(100)")
+    except psycopg2.ProgrammingError:
+        conn.rollback()  # La colonne existe déjà
+    
+    # Vérifier et créer l'admin par défaut
     c.execute("SELECT * FROM users WHERE username='admin'")
     if not c.fetchone():
         import hashlib
         admin_password = hashlib.sha256("admin".encode()).hexdigest()
         c.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
                   ("admin", admin_password, "administrateur"))
+    
+    # Créer un superviseur par défaut si il n'existe pas
+    c.execute("SELECT * FROM users WHERE username='superviseur'")
+    if not c.fetchone():
+        import hashlib
+        supervisor_password = hashlib.sha256("superviseur".encode()).hexdigest()
+        c.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)",
+                  ("superviseur", supervisor_password, "superviseur"))
+    
     conn.commit()
     conn.close()
