@@ -6,7 +6,7 @@ from auth import (
 )
 from leves import (
     add_leve, get_all_leves, get_filtered_leves, get_leves_by_topographe,
-    delete_leve, delete_user_leve, get_filter_options
+    delete_leve, delete_user_leve, get_filter_options, get_leve_by_id, update_leve
 )
 from villages import load_villages_data, get_index_or_default
 
@@ -16,6 +16,43 @@ from pages.saisie import show_saisie_page
 from pages.suivi import show_suivi_page
 from pages.account import show_account_page
 from pages.admin import show_admin_users_page, show_admin_data_page
+
+# Helper functions that might be missing from your modules
+def get_topographes_list():
+    """Return list of available topographers"""
+    return [
+        "",  # Option vide
+        # Topographes de BAKEL
+        "Mouhamed Lamine THIOUB",
+        "Mamadou GUEYE", 
+        "Djibril BODIAN",
+        "Arona FALL",
+        "Moussa DIOL",
+        "Mbaye GAYE",
+        "Ousseynou THIAM",
+        "Ousmane BA",
+        # Topographes de Kédougou
+        "Djibril Gueye",
+        "Yakhaya Toure", 
+        "Seydina Aliou Sow",
+        "Ndeye Yandé Diop",
+        "Mohamed Ahmed Sylla",
+        "Souleymane Niang",
+        "Cheikh Diawara",
+        "Mignane Gning",
+        "Serigne Saliou Sow",
+        "Gora Dieng"
+    ]
+
+def can_enter_surveys(user_role):
+    """Check if user can enter surveys"""
+    return user_role in ["superviseur", "administrateur", "admin"]
+
+def can_edit_leve(current_username, user_role, leve_superviseur):
+    """Check if user can edit a specific survey"""
+    if user_role in ["administrateur", "admin"]:
+        return True
+    return current_username == leve_superviseur
 
 def show_login_page():
     st.title("Connexion Gestion des Levés Topographiques")
@@ -204,7 +241,17 @@ def main():
     if current_page == "Dashboard":
         show_dashboard(get_all_leves, get_filter_options)
     elif current_page == "Saisie des Levés":
-        show_saisie_page(add_leve, load_villages_data, get_index_or_default)
+        # Fixed: Pass all required parameters
+        show_saisie_page(
+            add_leve, 
+            load_villages_data, 
+            get_index_or_default,
+            get_topographes_list,
+            can_enter_surveys,
+            get_leve_by_id,
+            update_leve,
+            can_edit_leve
+        )
     elif current_page == "Suivi":
         show_suivi_page(get_filter_options, get_filtered_leves, delete_user_leve, delete_leve)
     elif current_page == "Mon Compte":
