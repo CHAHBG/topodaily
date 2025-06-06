@@ -4,7 +4,12 @@ from datetime import datetime
 def show_saisie_page(
     add_leve,
     load_villages_data,
-    get_index_or_default
+    get_index_or_default,
+    get_topographes_list,
+    can_enter_surveys,
+    get_leve_by_id,
+    update_leve,
+    can_edit_leve
 ):
     st.title("Saisie des Levés Topographiques")
 
@@ -14,11 +19,17 @@ def show_saisie_page(
     if "cached_form_data" not in st.session_state:
         st.session_state.cached_form_data = {
             "region": "", "commune": "", "village": "", "appareil": "",
-            "type_leve": 0, "quantite": 1
+            "type_leve": 0, "quantite": 1, "topographe": ""
         }
 
     if "form_submitted" not in st.session_state:
         st.session_state.form_submitted = False
+
+    if "edit_mode" not in st.session_state:
+        st.session_state.edit_mode = False
+        
+    if "edit_leve_id" not in st.session_state:
+        st.session_state.edit_leve_id = None
 
     if "app_state" not in st.session_state:
         st.session_state.app_state = {
@@ -40,28 +51,99 @@ def show_saisie_page(
         st.rerun()
         return
 
-    st.info(f"Connecté en tant que: {st.session_state.app_state['username']}")
+    user_role = st.session_state.app_state.get("user", {}).get("role", "")
+    current_username = st.session_state.app_state["username"]
+    
+    # Seuls les superviseurs et administrateurs peuvent saisir des levées
+    if user_role not in ["superviseur", "admin"]:
+        st.error("Accès non autorisé. Seuls les superviseurs et administrateurs peuvent saisir des levées.")
+        return
 
+    st.info(f"Connecté en tant que: {current_username} ({user_role})")
+
+    # Messages de succès
     if st.session_state.get("form_submitted", False):
-        st.success("Levé enregistré avec succès!")
+        if st.session_state.get("edit_mode", False):
+            st.success("Levé modifié avec succès!")
+        else:
+            st.success("Levé enregistré avec succès!")
         st.session_state.form_submitted = False
 
-    col1, col2 = st.columns([1, 3])
+    # Boutons de navigation
+    col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
         if st.button("Nouveau levé", key="new_leve_btn"):
             st.session_state.form_key += 1
+            st.session_state.edit_mode = False
+            st.session_state.edit_leve_id = None
             st.session_state.cached_form_data = {
                 "region": "", "commune": "", "village": "", "appareil": "",
-                "type_leve": 0, "quantite": 1
+                "type_leve": 0, "quantite": 1, "topographe": ""
             }
             st.rerun()
+    
     with col2:
-        if st.button("Voir mes levés", key="view_leves_btn"):
+        if st.button("Voir les levés", key="view_leves_btn"):
             st.session_state.app_state["current_page"] = "Suivi"
             st.rerun()
 
-    st.subheader("Sélection de la localisation")
+    # Mode édition - Sélection du levé à modifier
+    if user_role in ["superviseur", "admin"]:
+        with col3:
+            if st.button("Modifier un levé", key="edit_mode_btn"):
+                st.session_state.show_edit_selection = not st.session_state.get("show_edit_selection", False)
+                st.rerun()
 
+    # Interface de sélection pour modification
+    if st.session_state.get("show_edit_selection", False):
+        st.subheader("Sélectionner un levé à modifier")
+        
+        # Ici vous devriez avoir une fonction pour récupérer les levés du superviseur
+        # Je suppose que vous avez une fonction get_user_leves(username) dans votre module leves
+        leve_id = st.number_input("ID du levé à modifier", min_value=1, step=1, key="edit_leve_id_input")
+        
+        col_edit1, col_edit2 = st.columns(2)
+        with col_edit1:
+            if st.button("Charger pour modification", key="load_edit_btn"):
+                # Vérifier si le levé existe et si l'utilisateur peut le modifier
+                leve_data = get_leve_by_id(leve_id)
+                if leve_data:
+                    # Vérifier si l'utilisateur peut modifier ce levé
+                    if can_edit_leve(current_username, user_role, leve_data.get("superviseur", "")):
+                        st.session_state.edit_mode = True
+                        st.session_state.edit_leve_id = leve_id
+                        st.session_state.show_edit_selection = False
+                        
+                        # Charger les données du levé dans le formulaire
+                        st.session_state.cached_form_data = {
+                            "region": leve_data.get("region", ""),
+                            "commune": leve_data.get("commune", ""),
+                            "village": leve_data.get("village", ""),
+                            "appareil": leve_data.get("appareil", ""),
+                            "type_leve": leve_data.get("type_leve", 0),
+                            "quantite": leve_data.get("quantite", 1),
+                            "topographe": leve_data.get("topographe", ""),
+                            "date": leve_data.get("date", "")
+                        }
+                        st.session_state.form_key += 1
+                        st.rerun()
+                    else:
+                        st.error("Vous ne pouvez modifier que vos propres levés.")
+                else:
+                    st.error("Levé non trouvé.")
+        
+        with col_edit2:
+            if st.button("Annuler", key="cancel_edit_selection_btn"):
+                st.session_state.show_edit_selection = False
+                st.rerun()
+
+    # Titre du formulaire selon le mode
+    if st.session_state.get("edit_mode", False):
+        st.subheader(f"Modification du levé #{st.session_state.edit_leve_id}")
+    else:
+        st.subheader("Sélection de la localisation")
+
+    # Gestion des changements de région/commune
     if st.session_state.get("_should_rerun", False):
         st.session_state._should_rerun = False
         st.rerun()
@@ -81,6 +163,7 @@ def show_saisie_page(
             st.session_state.cached_form_data["village"] = ""
             st.session_state._should_rerun = True
 
+    # Sélection région
     region_options = [""] + sorted(list(st.session_state.villages_data.keys()))
     region = st.selectbox(
         "Région",
@@ -90,6 +173,7 @@ def show_saisie_page(
         on_change=on_region_change
     )
 
+    # Sélection commune
     commune_options = [""]
     current_region = st.session_state.cached_form_data.get("region", "")
     if current_region:
@@ -103,13 +187,65 @@ def show_saisie_page(
         on_change=on_commune_change
     )
 
+    # Formulaire principal
     with st.form(key=f"leve_form_{st.session_state.form_key}"):
-        st.subheader("Nouveau levé topographique")
+        form_title = "Modification du levé topographique" if st.session_state.get("edit_mode", False) else "Nouveau levé topographique"
+        st.subheader(form_title)
 
-        date = st.date_input("Date du levé", datetime.now())
-        topographe = st.session_state.app_state["username"]
-        st.write(f"Topographe: **{topographe}**")
+        # Date du levé
+        default_date = datetime.now()
+        if st.session_state.get("edit_mode", False) and st.session_state.cached_form_data.get("date"):
+            try:
+                default_date = datetime.strptime(st.session_state.cached_form_data["date"], "%Y-%m-%d")
+            except:
+                default_date = datetime.now()
+        
+        date = st.date_input("Date du levé", default_date)
+        
+        # Liste complète des topographes
+        topographes_list = [
+            "",  # Option vide
+            # Topographes de BAKEL
+            "Mouhamed Lamine THIOUB",
+            "Mamadou GUEYE", 
+            "Djibril BODIAN",
+            "Arona FALL",
+            "Moussa DIOL",
+            "Mbaye GAYE",
+            "Ousseynou THIAM",
+            "Ousmane BA",
+            # Topographes de Kédougou
+            "Djibril Gueye",
+            "Yakhaya Toure", 
+            "Seydina Aliou Sow",
+            "Ndeye Yandé Diop",
+            "Mohamed Ahmed Sylla",
+            "Souleymane Niang",
+            "Cheikh Diawara",
+            "Mignane Gning",
+            "Serigne Saliou Sow",
+            "Gora Dieng"
+        ]
+        
+        # Sélection du topographe
+        cached_topographe = st.session_state.cached_form_data.get("topographe", "")
+        topographe_index = 0
+        if cached_topographe in topographes_list:
+            topographe_index = topographes_list.index(cached_topographe)
+        
+        topographe = st.selectbox(
+            "Topographe",
+            options=topographes_list,
+            index=topographe_index,
+            key="topographe_select",
+            help="Sélectionnez le topographe qui a effectué le levé"
+        )
+        
+        # Affichage du superviseur (utilisateur connecté)
+        superviseur = current_username
+        st.write(f"Superviseur: **{superviseur}**")
 
+        # Sélection du village
         village_options = [""]
         current_commune = st.session_state.cached_form_data.get("commune", "")
         if current_region and current_commune:
@@ -122,6 +258,7 @@ def show_saisie_page(
             key="village_select"
         )
 
+        # Appareil et type de levé
         col1, col2 = st.columns(2)
         with col1:
             appareil_options = ["LT60H", "TRIMBLE", "AUTRE"]
@@ -145,33 +282,75 @@ def show_saisie_page(
             type_index = st.session_state.cached_form_data.get("type_leve", 0)
             type_leve = st.selectbox("Type de levé", options=type_options, index=type_index)
 
+        # Quantité
         quantite = st.number_input("Quantité", min_value=1, value=st.session_state.cached_form_data.get("quantite", 1), step=1)
-        submit = st.form_submit_button("Enregistrer le levé")
+        
+        # Bouton de soumission
+        submit_text = "Modifier le levé" if st.session_state.get("edit_mode", False) else "Enregistrer le levé"
+        submit = st.form_submit_button(submit_text)
 
         if submit:
+            # Mise à jour des données en cache
             st.session_state.cached_form_data = {
                 "region": current_region, "commune": current_commune, "village": village,
                 "appareil": appareil, "type_leve": type_options.index(type_leve),
-                "quantite": quantite
+                "quantite": quantite, "topographe": topographe
             }
 
+            # Validation
             if not village:
                 st.error("Veuillez sélectionner un village.")
             elif not current_region:
                 st.error("Veuillez sélectionner une région.")
             elif not current_commune:
                 st.error("Veuillez sélectionner une commune.")
+            elif not topographe:
+                st.error("Veuillez sélectionner un topographe.")
             else:
                 date_str = date.strftime("%Y-%m-%d")
-                success = add_leve(date_str, village, current_region, current_commune, type_leve, quantite, appareil, topographe)
-                if success:
-                    st.cache_data.clear()
-                    st.session_state.form_submitted = True
-                    st.session_state.cached_form_data = {
-                        "region": "", "commune": "", "village": "", "appareil": "",
-                        "type_leve": 0, "quantite": 1
-                    }
-                    st.session_state.form_key += 1
-                    st.rerun()
+                
+                # Mode modification ou création
+                if st.session_state.get("edit_mode", False):
+                    success = update_leve(
+                        st.session_state.edit_leve_id,
+                        date_str, village, current_region, current_commune, 
+                        type_leve, quantite, appareil, topographe, superviseur
+                    )
+                    if success:
+                        st.cache_data.clear()
+                        st.session_state.form_submitted = True
+                        st.session_state.edit_mode = False
+                        st.session_state.edit_leve_id = None
+                        st.session_state.cached_form_data = {
+                            "region": "", "commune": "", "village": "", "appareil": "",
+                            "type_leve": 0, "quantite": 1, "topographe": ""
+                        }
+                        st.session_state.form_key += 1
+                        st.rerun()
+                    else:
+                        st.error("Erreur lors de la modification du levé.")
                 else:
-                    st.error("Erreur lors de l'enregistrement du levé.")
+                    success = add_leve(date_str, village, current_region, current_commune, type_leve, quantite, appareil, topographe, superviseur)
+                    if success:
+                        st.cache_data.clear()
+                        st.session_state.form_submitted = True
+                        st.session_state.cached_form_data = {
+                            "region": "", "commune": "", "village": "", "appareil": "",
+                            "type_leve": 0, "quantite": 1, "topographe": ""
+                        }
+                        st.session_state.form_key += 1
+                        st.rerun()
+                    else:
+                        st.error("Erreur lors de l'enregistrement du levé.")
+
+    # Annuler la modification
+    if st.session_state.get("edit_mode", False):
+        if st.button("Annuler la modification", key="cancel_edit_btn"):
+            st.session_state.edit_mode = False
+            st.session_state.edit_leve_id = None
+            st.session_state.cached_form_data = {
+                "region": "", "commune": "", "village": "", "appareil": "",
+                "type_leve": 0, "quantite": 1, "topographe": ""
+            }
+            st.session_state.form_key += 1
+            st.rerun()
