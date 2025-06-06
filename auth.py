@@ -119,3 +119,42 @@ def get_users():
         return users
     except Exception:
         return pd.DataFrame()
+
+def get_topographes_list():
+    """Retourne la liste prédéfinie des topographes de BAKEL"""
+    return [
+        "Mouhamed Lamine THIOUB",
+        "Mamadou GUEYE", 
+        "Djibril BODIAN",
+        "Arona FALL",
+        "Moussa DIOL",
+        "Mbaye GAYE",
+        "Ousseynou THIAM",
+        "Ousmane BA",
+        "Djibril Gueye",
+        "Yakhaya Toure",
+        "Seydina Aliou Sow",
+        "Ndeye Yandé Diop",
+        "Mohamed Ahmed Sylla",
+        "Souleymane Niang",
+        "Cheikh Diawara",
+        "Mignane Gning",
+        "Serigne Saliou Sow",
+        "Gora Dieng"
+    ]
+
+def can_create_accounts(user_role):
+    """Vérifie si l'utilisateur peut créer des comptes"""
+    return user_role == "administrateur"
+
+def can_enter_surveys(user_role):
+    """Vérifie si l'utilisateur peut saisir des levées"""
+    return user_role in ["superviseur", "administrateur"]
+
+def can_modify_survey(user_role, survey_creator, current_user):
+    """Vérifie si l'utilisateur peut modifier une levée"""
+    if user_role == "administrateur":
+        return True
+    if user_role == "superviseur" and survey_creator == current_user:
+        return True
+    return False
