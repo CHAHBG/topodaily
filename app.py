@@ -88,6 +88,10 @@ def can_edit_leve(current_username, user_role, leve_superviseur):
         return True
     return current_username == leve_superviseur
 
+def get_user_leves_wrapper(username):
+    """Wrapper function to get user leves - compatible with saisie.py expectations"""
+    return get_leves_by_topographe(username)
+
 def initialize_session_state():
     """Initialise l'état de session de manière optimisée"""
     if "app_state" not in st.session_state:
@@ -299,8 +303,8 @@ def main():
             get_leve_by_id,
             update_leve,
             can_edit_leve,
-            get_cached_user_leves,
-            clear_leves_cache  # Fonction pour nettoyer le cache
+            get_user_leves_wrapper,  # Changed from get_cached_user_leves
+            clear_leves_cache=clear_leves_cache  # Use keyword argument
         )
     elif current_page == "Suivi":
         show_suivi_page(get_cached_filter_options, get_filtered_leves, delete_user_leve, delete_leve)
