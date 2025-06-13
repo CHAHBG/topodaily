@@ -3,10 +3,11 @@ from datetime import datetime
 
 # ========== OPTIMISATIONS PRINCIPALES ==========
 
-@st.cache_data(ttl=300)  # Cache pendant 5 minutes
-def get_cached_villages_data(load_villages_data_func):
-    """Cache les données des villages pour éviter les rechargements"""
-    return load_villages_data_func()
+# Remove the problematic cache function - it's already cached in app.py
+# @st.cache_data(ttl=300)  # Cache pendant 5 minutes
+# def get_cached_villages_data(load_villages_data_func):
+#     """Cache les données des villages pour éviter les rechargements"""
+#     return load_villages_data_func()
 
 @st.cache_data(ttl=60)  # Cache pendant 1 minute
 def get_cached_user_leves(get_user_leves_func, username):
@@ -14,10 +15,10 @@ def get_cached_user_leves(get_user_leves_func, username):
     return get_user_leves_func(username)
 
 @st.cache_data(ttl=300)  # Cache pendant 5 minutes
-def get_cached_topographes_list(get_topographes_func):
+def get_cached_topographes_list(_get_topographes_func):
     """Cache la liste des topographes"""
-    if callable(get_topographes_func):
-        return get_topographes_func()
+    if callable(_get_topographes_func):
+        return _get_topographes_func()
     else:
         return [
             "",  # Option vide
@@ -113,9 +114,10 @@ def show_saisie_page(
 
     st.info(f"Connecté en tant que: {current_username} ({user_role})")
 
-    # Chargement optimisé des données avec cache
+    # Chargement optimisé des données - use the already cached function
     try:
-        villages_data = get_cached_villages_data(load_villages_data)
+        # Since load_villages_data is already cached in app.py, use it directly
+        villages_data = load_villages_data()
         if not villages_data:
             st.error("Impossible de charger les données des villages.")
             return
