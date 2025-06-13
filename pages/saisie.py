@@ -88,7 +88,8 @@ def show_saisie_page(
     get_leve_by_id,
     update_leve,
     can_edit_leve,
-    get_user_leves
+    get_user_leves,
+    clear_leves_cache=None  # Paramètre optionnel pour la compatibilité
 ):
     st.title("Saisie des Levés Topographiques")
 
@@ -149,7 +150,7 @@ def show_saisie_page(
 
     # Formulaire principal optimisé
     render_main_form(villages_data, topographes_list, current_username, 
-                    get_index_or_default, add_leve, update_leve)
+                    get_index_or_default, add_leve, update_leve, clear_leves_cache)
 
     # Bouton annulation en mode édition
     if st.session_state.get("edit_mode", False):
@@ -266,7 +267,7 @@ def load_edit_data(leve_id, leve_data):
     st.rerun()
 
 def render_main_form(villages_data, topographes_list, current_username, 
-                    get_index_or_default, add_leve, update_leve):
+                    get_index_or_default, add_leve, update_leve, clear_leves_cache=None):
     """Formulaire principal optimisé"""
     
     # Données en cache pour éviter les recalculs
@@ -309,10 +310,10 @@ def render_main_form(villages_data, topographes_list, current_username,
     # Formulaire principal
     with st.form(key=f"leve_form_{st.session_state.form_key}"):
         render_form_fields(village_options, topographes_list, current_username,
-                          get_index_or_default, add_leve, update_leve)
+                          get_index_or_default, add_leve, update_leve, clear_leves_cache)
 
 def render_form_fields(village_options, topographes_list, current_username,
-                      get_index_or_default, add_leve, update_leve):
+                      get_index_or_default, add_leve, update_leve, clear_leves_cache=None):
     """Champs du formulaire"""
     form_title = "Modification du levé topographique" if st.session_state.get("edit_mode", False) else "Nouveau levé topographique"
     st.subheader(form_title)
@@ -395,11 +396,11 @@ def render_form_fields(village_options, topographes_list, current_username,
         handle_form_submission(date, village, cached_data["region"], 
                              cached_data["commune"], type_leve, quantite, 
                              appareil, topographe, superviseur, type_options,
-                             add_leve, update_leve)
+                             add_leve, update_leve, clear_leves_cache)
 
 def handle_form_submission(date, village, region, commune, type_leve, quantite, 
                           appareil, topographe, superviseur, type_options,
-                          add_leve, update_leve):
+                          add_leve, update_leve, clear_leves_cache=None):
     """Gestion optimisée de la soumission"""
     
     # Validation
@@ -429,22 +430,29 @@ def handle_form_submission(date, village, region, commune, type_leve, quantite,
             type_leve, quantite, appareil, topographe, superviseur
         )
         if success:
-            handle_successful_submission(True)
+            handle_successful_submission(True, clear_leves_cache)
         else:
             st.error("Erreur lors de la modification du levé.")
     else:
         success = add_leve(date_str, village, region, commune, type_leve, 
                           quantite, appareil, topographe, superviseur)
         if success:
-            handle_successful_submission(False)
+            handle_successful_submission(False, clear_leves_cache)
         else:
             st.error("Erreur lors de l'enregistrement du levé.")
 
-def handle_successful_submission(is_edit=False):
+def handle_successful_submission(is_edit=False, clear_leves_cache=None):
     """Gestion après soumission réussie"""
     # Invalider les caches pertinents
     get_cached_user_leves.clear()
     st.cache_data.clear()
+    
+    # Si une fonction externe de nettoyage de cache est fournie
+    if clear_leves_cache and callable(clear_leves_cache):
+        try:
+            clear_leves_cache()
+        except Exception as e:
+            st.warning(f"Erreur lors du nettoyage du cache externe: {e}")
     
     # Réinitialiser l'état
     st.session_state.form_submitted = True
