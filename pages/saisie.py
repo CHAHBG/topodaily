@@ -9,10 +9,12 @@ def show_saisie_page(
     can_enter_surveys,
     get_leve_by_id,
     update_leve,
-    can_edit_leve
+    can_edit_leve,
+    get_user_leves  # Ajoute ce paramètre !
 ):
     st.title("Saisie des Levés Topographiques")
 
+    # Initialisations d'état
     if "form_key" not in st.session_state:
         st.session_state.form_key = 0
 
@@ -30,6 +32,9 @@ def show_saisie_page(
         
     if "edit_leve_id" not in st.session_state:
         st.session_state.edit_leve_id = None
+
+    if "show_edit_selection" not in st.session_state:
+        st.session_state.show_edit_selection = False
 
     if "app_state" not in st.session_state:
         st.session_state.app_state = {
@@ -98,44 +103,46 @@ def show_saisie_page(
     if st.session_state.get("show_edit_selection", False):
         st.subheader("Sélectionner un levé à modifier")
         
-        # Ici vous devriez avoir une fonction pour récupérer les levés du superviseur
-        # Je suppose que vous avez une fonction get_user_leves(username) dans votre module leves
-        leve_id = st.number_input("ID du levé à modifier", min_value=1, step=1, key="edit_leve_id_input")
-        
-        col_edit1, col_edit2 = st.columns(2)
-        with col_edit1:
-            if st.button("Charger pour modification", key="load_edit_btn"):
-                # Vérifier si le levé existe et si l'utilisateur peut le modifier
-                leve_data = get_leve_by_id(leve_id)
-                if leve_data:
-                    # Vérifier si l'utilisateur peut modifier ce levé
-                    if can_edit_leve(current_username, user_role, leve_data.get("superviseur", "")):
-                        st.session_state.edit_mode = True
-                        st.session_state.edit_leve_id = leve_id
-                        st.session_state.show_edit_selection = False
-                        
-                        # Charger les données du levé dans le formulaire
-                        st.session_state.cached_form_data = {
-                            "region": leve_data.get("region", ""),
-                            "commune": leve_data.get("commune", ""),
-                            "village": leve_data.get("village", ""),
-                            "appareil": leve_data.get("appareil", ""),
-                            "type_leve": leve_data.get("type_leve", 0),
-                            "quantite": leve_data.get("quantite", 1),
-                            "topographe": leve_data.get("topographe", ""),
-                            "date": leve_data.get("date", "")
-                        }
-                        st.session_state.form_key += 1
-                        st.rerun()
+        # Affiche les levés de l'utilisateur sous forme de selectbox
+        user_leves = get_user_leves(current_username)
+        if not user_leves:
+            st.info("Aucun levé à modifier.")
+        else:
+            options = [f"#{lev['id']} - {lev.get('village', 'N/A')} ({lev.get('date', 'N/A')})" for lev in user_leves]
+            id_map = {opt: lev['id'] for opt, lev in zip(options, user_leves)}
+            selected = st.selectbox("Choisissez un levé", options, key="edit_leve_selectbox")
+            leve_id = id_map[selected]
+
+            col_edit1, col_edit2 = st.columns(2)
+            with col_edit1:
+                if st.button("Charger pour modification", key="load_edit_btn"):
+                    leve_data = get_leve_by_id(leve_id)
+                    if leve_data:
+                        if can_edit_leve(current_username, user_role, leve_data.get("superviseur", "")):
+                            st.session_state.edit_mode = True
+                            st.session_state.edit_leve_id = leve_id
+                            st.session_state.show_edit_selection = False
+                            st.session_state.cached_form_data = {
+                                "region": leve_data.get("region", ""),
+                                "commune": leve_data.get("commune", ""),
+                                "village": leve_data.get("village", ""),
+                                "appareil": leve_data.get("appareil", ""),
+                                "type_leve": leve_data.get("type_leve", 0),
+                                "quantite": leve_data.get("quantite", 1),
+                                "topographe": leve_data.get("topographe", ""),
+                                "date": leve_data.get("date", "")
+                            }
+                            st.session_state.form_key += 1
+                            st.rerun()
+                        else:
+                            st.error("Vous ne pouvez modifier que vos propres levés.")
                     else:
-                        st.error("Vous ne pouvez modifier que vos propres levés.")
-                else:
-                    st.error("Levé non trouvé.")
-        
-        with col_edit2:
-            if st.button("Annuler", key="cancel_edit_selection_btn"):
-                st.session_state.show_edit_selection = False
-                st.rerun()
+                        st.error("Levé non trouvé.")
+            
+            with col_edit2:
+                if st.button("Annuler", key="cancel_edit_selection_btn"):
+                    st.session_state.show_edit_selection = False
+                    st.rerun()
 
     # Titre du formulaire selon le mode
     if st.session_state.get("edit_mode", False):
@@ -203,9 +210,8 @@ def show_saisie_page(
         date = st.date_input("Date du levé", default_date)
         
         # Liste complète des topographes
-        topographes_list = [
+        topographes_list = get_topographes_list() if callable(get_topographes_list) else [
             "",  # Option vide
-            # Topographes de BAKEL
             "Mouhamed Lamine THIOUB",
             "Mamadou GUEYE", 
             "Djibril BODIAN",
@@ -214,7 +220,6 @@ def show_saisie_page(
             "Mbaye GAYE",
             "Ousseynou THIAM",
             "Ousmane BA",
-            # Topographes de Kédougou
             "Djibril Gueye",
             "Yakhaya Toure", 
             "Seydina Aliou Sow",
@@ -227,7 +232,6 @@ def show_saisie_page(
             "Gora Dieng"
         ]
         
-        # Sélection du topographe
         cached_topographe = st.session_state.cached_form_data.get("topographe", "")
         topographe_index = 0
         if cached_topographe in topographes_list:
