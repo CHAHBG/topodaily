@@ -10,7 +10,7 @@ def show_saisie_page(
     get_leve_by_id,
     update_leve,
     can_edit_leve,
-    get_user_leves  # Ajoute ce paramètre !
+    get_user_leves  # <--- Passe cette fonction !
 ):
     st.title("Saisie des Levés Topographiques")
 
@@ -102,14 +102,14 @@ def show_saisie_page(
     # Interface de sélection pour modification
     if st.session_state.get("show_edit_selection", False):
         st.subheader("Sélectionner un levé à modifier")
-        
-        # Affiche les levés de l'utilisateur sous forme de selectbox
         user_leves = get_user_leves(current_username)
-        if not user_leves:
+        # On ne garde que les levés bien formés
+        user_leves_valides = [lev for lev in user_leves if isinstance(lev, dict) and 'id' in lev]
+        if not user_leves_valides:
             st.info("Aucun levé à modifier.")
         else:
-            options = [f"#{lev['id']} - {lev.get('village', 'N/A')} ({lev.get('date', 'N/A')})" for lev in user_leves]
-            id_map = {opt: lev['id'] for opt, lev in zip(options, user_leves)}
+            options = [f"#{lev['id']} - {lev.get('village', 'N/A')} ({lev.get('date', 'N/A')})" for lev in user_leves_valides]
+            id_map = {opt: lev['id'] for opt, lev in zip(options, user_leves_valides)}
             selected = st.selectbox("Choisissez un levé", options, key="edit_leve_selectbox")
             leve_id = id_map[selected]
 
@@ -138,7 +138,6 @@ def show_saisie_page(
                             st.error("Vous ne pouvez modifier que vos propres levés.")
                     else:
                         st.error("Levé non trouvé.")
-            
             with col_edit2:
                 if st.button("Annuler", key="cancel_edit_selection_btn"):
                     st.session_state.show_edit_selection = False
