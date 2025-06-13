@@ -102,46 +102,99 @@ def show_saisie_page(
     # Interface de sélection pour modification
     if st.session_state.get("show_edit_selection", False):
         st.subheader("Sélectionner un levé à modifier")
-        user_leves = get_user_leves(current_username)
-        # On ne garde que les levés bien formés
-        user_leves_valides = [lev for lev in user_leves if isinstance(lev, dict) and 'id' in lev]
-        if not user_leves_valides:
-            st.info("Aucun levé à modifier.")
-        else:
-            options = [f"#{lev['id']} - {lev.get('village', 'N/A')} ({lev.get('date', 'N/A')})" for lev in user_leves_valides]
-            id_map = {opt: lev['id'] for opt, lev in zip(options, user_leves_valides)}
-            selected = st.selectbox("Choisissez un levé", options, key="edit_leve_selectbox")
-            leve_id = id_map[selected]
+        
+        try:
+            user_leves = get_user_leves(current_username)
+            
+            # Debug: Afficher la structure des données pour diagnostiquer
+            if user_leves:
+                st.write(f"Debug: Nombre de levés trouvés: {len(user_leves)}")
+                for i, leve in enumerate(user_leves[:3]):  # Afficher les 3 premiers pour debug
+                    st.write(f"Debug levé {i}: type={type(leve)}, contenu={leve}")
+            
+            # Filtrage plus robuste des levés valides
+            user_leves_valides = []
+            for leve in user_leves:
+                if isinstance(leve, dict) and 'id' in leve and leve['id'] is not None:
+                    # Vérifier que l'ID est valide (non vide, non None)
+                    if str(leve['id']).strip():
+                        user_leves_valides.append(leve)
+                else:
+                    st.write(f"Debug: Levé invalide ignoré: {leve}")
+            
+            if not user_leves_valides:
+                st.info("Aucun levé valide à modifier.")
+            else:
+                # Création des options avec gestion d'erreur
+                options = []
+                for leve in user_leves_valides:
+                    try:
+                        leve_id = leve.get('id', 'N/A')
+                        village = leve.get('village', 'N/A')
+                        date = leve.get('date', 'N/A')
+                        option = f"#{leve_id} - {village} ({date})"
+                        options.append(option)
+                    except Exception as e:
+                        st.error(f"Erreur lors de la création de l'option pour le levé {leve}: {e}")
+                        continue
+                
+                if not options:
+                    st.error("Erreur lors de la création des options de sélection.")
+                    return
+                
+                # Création du mapping ID avec gestion d'erreur
+                id_map = {}
+                for opt, leve in zip(options, user_leves_valides):
+                    try:
+                        id_map[opt] = leve['id']
+                    except KeyError as e:
+                        st.error(f"Erreur: clé manquante dans le levé {leve}: {e}")
+                        continue
+                
+                if not id_map:
+                    st.error("Erreur lors de la création du mapping des IDs.")
+                    return
+                
+                selected = st.selectbox("Choisissez un levé", options, key="edit_leve_selectbox")
+                
+                if selected in id_map:
+                    leve_id = id_map[selected]
 
-            col_edit1, col_edit2 = st.columns(2)
-            with col_edit1:
-                if st.button("Charger pour modification", key="load_edit_btn"):
-                    leve_data = get_leve_by_id(leve_id)
-                    if leve_data:
-                        if can_edit_leve(current_username, user_role, leve_data.get("superviseur", "")):
-                            st.session_state.edit_mode = True
-                            st.session_state.edit_leve_id = leve_id
+                    col_edit1, col_edit2 = st.columns(2)
+                    with col_edit1:
+                        if st.button("Charger pour modification", key="load_edit_btn"):
+                            leve_data = get_leve_by_id(leve_id)
+                            if leve_data:
+                                if can_edit_leve(current_username, user_role, leve_data.get("superviseur", "")):
+                                    st.session_state.edit_mode = True
+                                    st.session_state.edit_leve_id = leve_id
+                                    st.session_state.show_edit_selection = False
+                                    st.session_state.cached_form_data = {
+                                        "region": leve_data.get("region", ""),
+                                        "commune": leve_data.get("commune", ""),
+                                        "village": leve_data.get("village", ""),
+                                        "appareil": leve_data.get("appareil", ""),
+                                        "type_leve": leve_data.get("type_leve", 0),
+                                        "quantite": leve_data.get("quantite", 1),
+                                        "topographe": leve_data.get("topographe", ""),
+                                        "date": leve_data.get("date", "")
+                                    }
+                                    st.session_state.form_key += 1
+                                    st.rerun()
+                                else:
+                                    st.error("Vous ne pouvez modifier que vos propres levés.")
+                            else:
+                                st.error("Levé non trouvé.")
+                    with col_edit2:
+                        if st.button("Annuler", key="cancel_edit_selection_btn"):
                             st.session_state.show_edit_selection = False
-                            st.session_state.cached_form_data = {
-                                "region": leve_data.get("region", ""),
-                                "commune": leve_data.get("commune", ""),
-                                "village": leve_data.get("village", ""),
-                                "appareil": leve_data.get("appareil", ""),
-                                "type_leve": leve_data.get("type_leve", 0),
-                                "quantite": leve_data.get("quantite", 1),
-                                "topographe": leve_data.get("topographe", ""),
-                                "date": leve_data.get("date", "")
-                            }
-                            st.session_state.form_key += 1
                             st.rerun()
-                        else:
-                            st.error("Vous ne pouvez modifier que vos propres levés.")
-                    else:
-                        st.error("Levé non trouvé.")
-            with col_edit2:
-                if st.button("Annuler", key="cancel_edit_selection_btn"):
-                    st.session_state.show_edit_selection = False
-                    st.rerun()
+                else:
+                    st.error("Sélection invalide.")
+                    
+        except Exception as e:
+            st.error(f"Erreur lors du chargement des levés: {e}")
+            st.write(f"Debug: Exception détaillée: {type(e).__name__}: {str(e)}")
 
     # Titre du formulaire selon le mode
     if st.session_state.get("edit_mode", False):
