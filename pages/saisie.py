@@ -36,7 +36,7 @@ def apply_custom_styles():
     st.markdown("""
     <style>
     .main-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #e67e22 0%, #2c3e50 100%);
         padding: 2rem 1rem;
         border-radius: 15px;
         margin-bottom: 2rem;
@@ -72,11 +72,11 @@ def apply_custom_styles():
         padding: 1.5rem;
         border-radius: 15px;
         margin: 1rem 0;
-        border-left: 4px solid #667eea;
+        border-left: 4px solid #e67e22;
     }
     
     .form-section h3 {
-        color: #667eea;
+        color: #e67e22;
         margin-top: 0;
         font-weight: 600;
         display: flex;
@@ -137,12 +137,12 @@ def apply_custom_styles():
     }
     
     .summary-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #e67e22 0%, #2c3e50 100%);
         color: white;
         padding: 1.5rem;
         border-radius: 15px;
         margin: 1rem 0;
-        box-shadow: 0 8px 25px rgba(102,126,234,0.3);
+        box-shadow: 0 8px 25px rgba(230,126,34,0.3);
     }
     
     .summary-card h4 {
@@ -164,8 +164,8 @@ def apply_custom_styles():
     }
     
     .stSelectbox > div > div:focus-within {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+        border-color: #e67e22;
+        box-shadow: 0 0 0 3px rgba(230,126,34,0.1);
     }
     
     .stNumberInput > div > div {
@@ -175,8 +175,8 @@ def apply_custom_styles():
     }
     
     .stNumberInput > div > div:focus-within {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+        border-color: #e67e22;
+        box-shadow: 0 0 0 3px rgba(230,126,34,0.1);
     }
     
     .stDateInput > div > div {
@@ -186,8 +186,8 @@ def apply_custom_styles():
     }
     
     .stDateInput > div > div:focus-within {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+        border-color: #e67e22;
+        box-shadow: 0 0 0 3px rgba(230,126,34,0.1);
     }
     
     .stTextInput > div > div {
@@ -197,8 +197,8 @@ def apply_custom_styles():
     }
     
     .stTextInput > div > div:focus-within {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+        border-color: #e67e22;
+        box-shadow: 0 0 0 3px rgba(230,126,34,0.1);
     }
     
     .stButton > button {
@@ -207,14 +207,14 @@ def apply_custom_styles():
         padding: 0.7rem 1.5rem;
         font-weight: 600;
         transition: all 0.3s ease;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #e67e22 0%, #2c3e50 100%);
         color: white;
-        box-shadow: 0 4px 15px rgba(102,126,234,0.3);
+        box-shadow: 0 4px 15px rgba(230,126,34,0.3);
     }
     
     .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(102,126,234,0.4);
+        box-shadow: 0 6px 20px rgba(230,126,34,0.4);
     }
     
     .diagnostic-section {
@@ -247,7 +247,7 @@ def apply_custom_styles():
     }
     
     .step.active {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #e67e22 0%, #34495e 100%);
         color: white;
         transform: scale(1.05);
     }
@@ -256,12 +256,19 @@ def apply_custom_styles():
         margin: 0 0 0.5rem 0;
         font-size: 1rem;
         font-weight: 600;
+        color: #2c3e50;
     }
     
     .step p {
         margin: 0;
         font-size: 0.9rem;
         opacity: 0.8;
+        color: #34495e;
+    }
+    
+    .step.active h4,
+    .step.active p {
+        color: white;
     }
     </style>
     """, unsafe_allow_html=True)
