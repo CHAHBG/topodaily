@@ -38,6 +38,44 @@ def get_cached_topographes_list(_get_topographes_func):
         "Gora Dieng"
     ]
 
+@st.cache_data(ttl=600)  # Cache pendant 10 minutes
+def get_cached_villages_data(_load_villages_data_func):
+    """Cache les données des villages pour éviter les rechargements"""
+    try:
+        return _load_villages_data_func()
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des données: {e}")
+        return None
+
+@st.cache_data(ttl=300)  # Cache pendant 5 minutes
+def get_filtered_options_cached(villages_data, region, commune):
+    """Version cachée de get_filtered_options pour de meilleures performances"""
+    # Vérification de la validité des données
+    if not villages_data or not isinstance(villages_data, dict):
+        return [""], [""], [""]
+    
+    try:
+        region_options = [""] + sorted(list(villages_data.keys()))
+    except (AttributeError, TypeError):
+        region_options = [""]
+    
+    commune_options = [""]
+    if region and region in villages_data and isinstance(villages_data[region], dict):
+        try:
+            commune_options += sorted(list(villages_data[region].keys()))
+        except (AttributeError, TypeError):
+            pass
+    
+    village_options = [""]
+    if (region and commune and 
+        region in villages_data and 
+        isinstance(villages_data[region], dict) and
+        commune in villages_data[region] and
+        isinstance(villages_data[region][commune], list)):
+        village_options += villages_data[region][commune]
+    
+    return region_options, commune_options, village_options
+
 def initialize_session_state():
     """Initialise tous les états de session une seule fois"""
     defaults = {
@@ -64,34 +102,6 @@ def initialize_session_state():
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
-
-def get_filtered_options(villages_data, region, commune):
-    """Génère les options filtrées pour les selectbox sans rerun"""
-    # Vérification de la validité des données
-    if not villages_data or not isinstance(villages_data, dict):
-        return [""], [""], [""]
-    
-    try:
-        region_options = [""] + sorted(list(villages_data.keys()))
-    except (AttributeError, TypeError):
-        region_options = [""]
-    
-    commune_options = [""]
-    if region and region in villages_data and isinstance(villages_data[region], dict):
-        try:
-            commune_options += sorted(list(villages_data[region].keys()))
-        except (AttributeError, TypeError):
-            pass
-    
-    village_options = [""]
-    if (region and commune and 
-        region in villages_data and 
-        isinstance(villages_data[region], dict) and
-        commune in villages_data[region] and
-        isinstance(villages_data[region][commune], list)):
-        village_options += villages_data[region][commune]
-    
-    return region_options, commune_options, village_options
 
 def show_saisie_page(
     add_leve,
@@ -122,8 +132,6 @@ def show_saisie_page(
     if user_role not in ["superviseur", "admin"]:
         st.error("Accès non autorisé. Seuls les superviseurs et administrateurs peuvent saisir des levées.")
         return
-
-    st.info(f"Connecté en tant que: {current_username} ({user_role})")
 
     # ===== CHARGEMENT OPTIMISÉ DES DONNÉES =====
     villages_data = load_and_validate_villages_data(load_villages_data)
@@ -157,11 +165,11 @@ def show_saisie_page(
     )
 
 def load_and_validate_villages_data(load_villages_data):
-    """Charge et valide les données des villages avec diagnostic intégré"""
+    """Charge et valide les données des villages sans messages inutiles"""
     
     try:
-        # Chargement des données
-        villages_data = load_villages_data()
+        # Chargement des données avec cache
+        villages_data = get_cached_villages_data(load_villages_data)
         
         # Vérification robuste du type et du contenu
         if not villages_data:
@@ -181,8 +189,7 @@ def load_and_validate_villages_data(load_villages_data):
             return None
             
         else:
-            # Afficher les statistiques de chargement
-            display_loading_stats(villages_data)
+            # Données valides - pas de message d'info
             return villages_data
             
     except Exception as e:
@@ -191,41 +198,17 @@ def load_and_validate_villages_data(load_villages_data):
         show_recovery_options()
         return None
 
-def display_loading_stats(villages_data):
-    """Affiche les statistiques de chargement des données"""
-    regions_count = len(villages_data)
-    communes_count = sum(len(communes) for communes in villages_data.values())
-    villages_count = sum(len(villages) for region in villages_data.values() for villages in region.values())
-    
-    st.success(f"✅ Données chargées: {regions_count} régions, {communes_count} communes, {villages_count} villages")
-
 def show_diagnostic_options():
     """Affiche les options de diagnostic"""
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("🔍 Diagnostiquer le problème"):
-            diagnosis = diagnose_villages_file()
-            st.code(diagnosis)
-    
-    with col2:
-        if st.button("📝 Créer un fichier de test"):
-            if create_sample_villages_file():
-                st.rerun()
+    if st.button("🔍 Diagnostiquer le problème"):
+        diagnosis = diagnose_villages_file()
+        st.code(diagnosis)
 
 def show_recovery_options():
     """Affiche les options de récupération d'erreur"""
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("🔄 Vider le cache et réessayer"):
-            st.cache_data.clear()
-            st.rerun()
-    
-    with col2:
-        if st.button("📝 Créer fichier de test"):
-            if create_sample_villages_file():
-                st.rerun()
+    if st.button("🔄 Vider le cache et réessayer"):
+        st.cache_data.clear()
+        st.rerun()
 
 def display_success_message():
     """Affiche le message de succès de manière persistante"""
@@ -256,16 +239,16 @@ def render_navigation_buttons():
 
 def render_main_form(villages_data, topographes_list, current_username, 
                     get_index_or_default, add_leve, clear_leves_cache=None):
-    """Formulaire principal optimisé - villages_data est garanti d'être valide"""
+    """Formulaire principal optimisé avec performance améliorée"""
     
     # Données en cache pour éviter les recalculs
     cached_data = st.session_state.cached_form_data
     current_region = cached_data.get("region", "")
     current_commune = cached_data.get("commune", "")
     
-    # Génération optimisée des options
+    # Génération optimisée des options avec cache
     try:
-        region_options, commune_options, village_options = get_filtered_options(
+        region_options, commune_options, village_options = get_filtered_options_cached(
             villages_data, current_region, current_commune
         )
     except Exception as e:
@@ -273,10 +256,9 @@ def render_main_form(villages_data, topographes_list, current_username,
         region_options, commune_options, village_options = [""], [""], [""]
 
     # Sélecteurs avec callbacks optimisés
-    render_location_selectors(
-        region_options, commune_options, 
-        current_region, current_commune, 
-        get_index_or_default
+    render_location_selectors_optimized(
+        villages_data, region_options, commune_options, 
+        current_region, current_commune, get_index_or_default
     )
 
     # Vérifier les changements de sélection
@@ -286,6 +268,13 @@ def render_main_form(villages_data, topographes_list, current_username,
     # Mise à jour optimisée du cache
     update_location_cache(region, commune, current_region, current_commune)
 
+    # Recalcul des villages si nécessaire
+    if region != current_region or commune != current_commune:
+        try:
+            _, _, village_options = get_filtered_options_cached(villages_data, region, commune)
+        except Exception:
+            village_options = [""]
+
     # Formulaire principal
     with st.form(key=f"leve_form_{st.session_state.form_key}"):
         render_form_fields(
@@ -293,15 +282,15 @@ def render_main_form(villages_data, topographes_list, current_username,
             get_index_or_default, add_leve, clear_leves_cache
         )
 
-def render_location_selectors(region_options, commune_options, current_region, 
-                            current_commune, get_index_or_default):
-    """Affiche les sélecteurs de localisation"""
+def render_location_selectors_optimized(villages_data, region_options, commune_options, 
+                                      current_region, current_commune, get_index_or_default):
+    """Sélecteurs de localisation optimisés pour de meilleures performances"""
     
     col1, col2 = st.columns(2)
     
     with col1:
         try:
-            st.selectbox(
+            region = st.selectbox(
                 "🌍 Région",
                 options=region_options,
                 index=get_index_or_default(region_options, current_region),
@@ -313,11 +302,20 @@ def render_location_selectors(region_options, commune_options, current_region,
             return
 
     with col2:
+        # Recalcul rapide des communes si région changée
+        if region != current_region and region:
+            try:
+                commune_options = [""]
+                if region in villages_data and isinstance(villages_data[region], dict):
+                    commune_options += sorted(list(villages_data[region].keys()))
+            except Exception:
+                commune_options = [""]
+        
         try:
-            st.selectbox(
+            commune = st.selectbox(
                 "🏘️ Commune",
                 options=commune_options,
-                index=get_index_or_default(commune_options, current_commune),
+                index=get_index_or_default(commune_options, current_commune if region == current_region else ""),
                 key="commune_select",
                 help="Sélectionnez la commune"
             )
@@ -671,26 +669,6 @@ def diagnose_villages_file():
         
     except Exception as e:
         return f"❌ Erreur lors du diagnostic: {e}"
-
-def create_sample_villages_file():
-    """Crée un fichier Villages.xlsx de test"""
-    try:
-        import pandas as pd
-        
-        data = {
-            'Region': ['Dakar', 'Dakar', 'Dakar', 'Thiès', 'Thiès', 'Thiès'],
-            'Commune': ['Dakar', 'Dakar', 'Guédiawaye', 'Thiès', 'Thiès', 'Mbour'],
-            'Village': ['Plateau', 'Médina', 'Sam Notaire', 'Randoulène', 'Mbour 1', 'Mbour 2']
-        }
-        
-        df = pd.DataFrame(data)
-        df.to_excel('Villages.xlsx', index=False)
-        st.success("📝 Fichier Villages.xlsx de test créé avec succès!")
-        return True
-        
-    except Exception as e:
-        st.error(f"Erreur lors de la création du fichier test: {e}")
-        return False
 
 # ========== FONCTION DE DEBUG ==========
 
