@@ -6,7 +6,7 @@ from auth import (
 )
 from leves import (
     add_leve, get_all_leves, get_filtered_leves, get_leves_by_topographe,
-    delete_leve, delete_user_leve, get_filter_options, get_leve_by_id, update_leve
+    delete_leve, delete_user_leve, get_filter_options
 )
 from villages import load_villages_data, get_index_or_default
 
@@ -81,16 +81,6 @@ def clear_leves_cache():
 def can_enter_surveys(user_role):
     """Check if user can enter surveys"""
     return user_role in ["superviseur", "administrateur", "admin"]
-
-def can_edit_leve(current_username, user_role, leve_superviseur):
-    """Check if user can edit a specific survey"""
-    if user_role in ["administrateur", "admin"]:
-        return True
-    return current_username == leve_superviseur
-
-def get_user_leves_wrapper(username):
-    """Wrapper function to get user leves - compatible with saisie.py expectations"""
-    return get_leves_by_topographe(username)
 
 def initialize_session_state():
     """Initialise l'état de session de manière optimisée"""
@@ -300,11 +290,7 @@ def main():
             get_index_or_default,
             get_cached_topographes_list,
             can_enter_surveys,
-            get_leve_by_id,
-            update_leve,
-            can_edit_leve,
-            get_user_leves_wrapper,  # Changed from get_cached_user_leves
-            clear_leves_cache=clear_leves_cache  # Use keyword argument
+            clear_leves_cache=clear_leves_cache
         )
     elif current_page == "Suivi":
         show_suivi_page(get_cached_filter_options, get_filtered_leves, delete_user_leve, delete_leve)
