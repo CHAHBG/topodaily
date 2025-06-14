@@ -241,33 +241,24 @@ def apply_custom_styles():
         padding: 1rem;
         border-radius: 10px;
         margin: 0 0.5rem;
-        background: white;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        transition: all 0.3s ease;
-    }
-    
-    .step.active {
         background: linear-gradient(135deg, #e67e22 0%, #34495e 100%);
         color: white;
         transform: scale(1.05);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        transition: all 0.3s ease;
     }
     
     .step h4 {
         margin: 0 0 0.5rem 0;
         font-size: 1rem;
         font-weight: 600;
-        color: #2c3e50;
+        color: white;
     }
     
     .step p {
         margin: 0;
         font-size: 0.9rem;
-        opacity: 0.8;
-        color: #34495e;
-    }
-    
-    .step.active h4,
-    .step.active p {
+        opacity: 0.9;
         color: white;
     }
     </style>
@@ -376,10 +367,10 @@ def show_saisie_page(
     
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Indicateur d'étapes
+    # Indicateur d'étapes - Toutes les étapes ont maintenant la même couleur
     st.markdown("""
     <div class="step-indicator">
-        <div class="step active">
+        <div class="step">
             <h4>1. Localisation</h4>
             <p>Région, Commune, Village</p>
         </div>
