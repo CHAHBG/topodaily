@@ -10,7 +10,6 @@ from leves import (
 )
 from villages import load_villages_data, get_index_or_default
 
-# Import des pages
 from pages.dashboard import show_dashboard
 from pages.saisie import show_saisie_page
 from pages.suivi import show_suivi_page
@@ -18,72 +17,49 @@ from pages.account import show_account_page
 from pages.admin import show_admin_users_page, show_admin_data_page
 
 # ================================
-# FONCTIONS CACHÉES POUR OPTIMISATION
+# CACHE OPTIMISÉ
 # ================================
 
-@st.cache_data(ttl=3600)  # Cache pour 1 heure
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_cached_villages_data():
-    """Charge et cache les données des villages"""
     return load_villages_data()
 
-@st.cache_data(ttl=1800)  # Cache pour 30 minutes
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_cached_topographes_list():
-    """Retourne la liste cachée des topographes"""
     return [
-        "",  # Option vide
-        # Topographes de BAKEL
-        "Mouhamed Lamine THIOUB",
-        "Mamadou GUEYE", 
-        "Djibril BODIAN",
-        "Arona FALL",
-        "Moussa DIOL",
-        "Mbaye GAYE",
-        "Ousseynou THIAM",
-        "Ousmane BA",
-        # Topographes de Kédougou
-        "Djibril Gueye",
-        "Yakhaya Toure", 
-        "Seydina Aliou Sow",
-        "Ndeye Yandé Diop",
-        "Mohamed Ahmed Sylla",
-        "Souleymane Niang",
-        "Cheikh Diawara",
-        "Mignane Gning",
-        "Serigne Saliou Sow",
-        "Gora Dieng"
+        "",
+        "Mouhamed Lamine THIOUB", "Mamadou GUEYE", "Djibril BODIAN", "Arona FALL", "Moussa DIOL",
+        "Mbaye GAYE", "Ousseynou THIAM", "Ousmane BA",
+        "Djibril Gueye", "Yakhaya Toure", "Seydina Aliou Sow", "Ndeye Yandé Diop",
+        "Mohamed Ahmed Sylla", "Souleymane Niang", "Cheikh Diawara", "Mignane Gning",
+        "Serigne Saliou Sow", "Gora Dieng"
     ]
 
-@st.cache_data(ttl=300)  # Cache pour 5 minutes
+@st.cache_data(ttl=300, show_spinner=False)
 def get_cached_user_leves(username):
-    """Cache les levés de l'utilisateur"""
     return get_leves_by_topographe(username)
 
-@st.cache_data(ttl=600)  # Cache pour 10 minutes
+@st.cache_data(ttl=600, show_spinner=False)
 def get_cached_all_leves():
-    """Cache tous les levés"""
     return get_all_leves()
 
-@st.cache_data(ttl=600)  # Cache pour 10 minutes
+@st.cache_data(ttl=600, show_spinner=False)
 def get_cached_filter_options():
-    """Cache les options de filtrage"""
     return get_filter_options()
 
 def clear_leves_cache():
-    """Nettoie le cache des levés après modification"""
     get_cached_user_leves.clear()
     get_cached_all_leves.clear()
     get_cached_filter_options.clear()
 
 # ================================
-# FONCTIONS UTILITAIRES OPTIMISÉES
+# UTILITAIRES
 # ================================
 
 def can_enter_surveys(user_role):
-    """Check if user can enter surveys"""
     return user_role in ["superviseur", "administrateur", "admin"]
 
 def initialize_session_state():
-    """Initialise l'état de session de manière optimisée"""
     if "app_state" not in st.session_state:
         st.session_state.app_state = {
             "authenticated": False,
@@ -93,11 +69,9 @@ def initialize_session_state():
             "show_login": False,
             "show_registration": False
         }
-    
-    # Charge les données villages une seule fois
     if "villages_data_loaded" not in st.session_state:
         villages_data = get_cached_villages_data()
-        if villages_data:
+        if villages_data is not None:
             st.session_state.villages_data = villages_data
             st.session_state.villages_data_loaded = True
         else:
@@ -110,7 +84,6 @@ def show_login_page():
         username = st.text_input("Nom d'utilisateur")
         password = st.text_input("Mot de passe", type="password")
         submit = st.form_submit_button("Se connecter")
-        
         if submit:
             user = verify_user(username, password)
             if user:
@@ -120,16 +93,15 @@ def show_login_page():
                 st.session_state.app_state["show_login"] = False
                 st.session_state.app_state["current_page"] = "Mon Compte"
                 st.success(f"Connexion réussie! Bienvenue {username}!")
-                st.rerun()
+                st.experimental_rerun()
             else:
                 st.error("Nom d'utilisateur ou mot de passe incorrect.")
-    
     st.markdown("---")
     st.markdown("Pas encore de compte ? 👇Cliquez sur le bouton Créer un compte👇")
     if st.button("Créer un compte"):
         st.session_state.app_state["show_login"] = False
         st.session_state.app_state["show_registration"] = True
-        st.rerun()
+        st.experimental_rerun()
 
 def show_registration_page():
     st.title("Création de compte")
@@ -140,7 +112,6 @@ def show_registration_page():
         email = st.text_input("Email")
         phone = st.text_input("Numéro de téléphone")
         submit = st.form_submit_button("S'inscrire")
-        
         if submit:
             if not username or not password:
                 st.error("Le nom d'utilisateur et le mot de passe sont obligatoires.")
@@ -156,17 +127,15 @@ def show_registration_page():
                     st.success(message)
                     st.session_state.app_state["show_login"] = True
                     st.session_state.app_state["show_registration"] = False
-                    st.rerun()
+                    st.experimental_rerun()
                 else:
                     st.error(message)
-    
     if st.button("Retour à la connexion"):
         st.session_state.app_state["show_login"] = True
         st.session_state.app_state["show_registration"] = False
-        st.rerun()
+        st.experimental_rerun()
 
 def show_navigation_sidebar():
-    # CSS pour masquer les éléments Streamlit
     st.markdown("""
     <style>
     section[data-testid="stSidebar"] nav {display: none;}
@@ -174,24 +143,16 @@ def show_navigation_sidebar():
     header {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
-    
     st.sidebar.title("Navigation")
     app_state = st.session_state.app_state
-    
-    # Éviter les reruns inutiles en utilisant un key stable
     if app_state["authenticated"]:
         user_role = app_state["user"]["role"]
         username = app_state["username"]
         st.sidebar.write(f"Connecté en tant que: **{username}**")
         st.sidebar.write(f"Rôle: **{user_role}**")
-        
         pages = ["Dashboard", "Saisie des Levés", "Suivi", "Mon Compte"]
         current_idx = pages.index(app_state["current_page"]) if app_state["current_page"] in pages else 0
-        
-        # Utiliser un key unique pour éviter les reruns
         page = st.sidebar.radio("Pages", pages, index=current_idx, key="main_nav")
-        
-        # Menu d'administration
         if user_role == "administrateur":
             st.sidebar.markdown("---")
             admin_page = st.sidebar.radio(
@@ -204,48 +165,40 @@ def show_navigation_sidebar():
                 page = "Admin Users"
             elif admin_page == "Gestion des Données":
                 page = "Admin Data"
-        
         st.sidebar.markdown("---")
         if st.sidebar.button("Déconnexion", key="logout_btn"):
-            # Nettoyer les caches utilisateur
             get_cached_user_leves.clear()
             st.session_state.clear()
             initialize_session_state()
-            st.rerun()
+            st.experimental_rerun()
     else:
         page = st.sidebar.radio("Pages", ["Dashboard"], index=0, key="guest_nav")
         st.sidebar.markdown("---")
         st.sidebar.info("Connectez-vous pour accéder à toutes les fonctionnalités.")
-        
         col1, col2 = st.sidebar.columns(2)
         with col1:
             if st.button("Se connecter", key="login_btn"):
                 st.session_state.app_state["show_login"] = True
                 st.session_state.app_state["show_registration"] = False
-                st.rerun()
+                st.experimental_rerun()
         with col2:
             if st.button("S'inscrire", key="register_btn"):
                 st.session_state.app_state["show_login"] = False
                 st.session_state.app_state["show_registration"] = True
-                st.rerun()
-    
+                st.experimental_rerun()
     # Changement de page seulement si nécessaire
     if app_state["current_page"] != page:
         app_state["current_page"] = page
-        st.rerun()
-    
+        st.experimental_rerun()
     return page
 
 def main():
-    # Configuration de la page
     st.set_page_config(
         page_title="Gestion des Levés Topographiques",
         page_icon="📏",
         layout="wide",
         initial_sidebar_state="expanded"
     )
-    
-    # CSS pour masquer les éléments Streamlit
     hide_streamlit_style = """
     <style>
         #root > div:nth-child(1) > div > div > div > div > section > div {padding-top: 0rem;}
@@ -259,34 +212,23 @@ def main():
     </style>
     """
     st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-    
-    # Initialisation de la base de données
     init_db()
-    
-    # Initialisation de l'état de session
     initialize_session_state()
-    
     app_state = st.session_state.app_state
-    
-    # Affichage des pages de connexion/inscription
     if app_state["show_login"]:
         show_login_page()
         return
-    
     if app_state["show_registration"]:
         show_registration_page()
         return
-    
-    # Affichage de la navigation
     current_page = show_navigation_sidebar()
-    
-    # Affichage des pages avec fonctions cachées
+    # OPTI: passage de fonctions avec cache pour éviter les recalculs
     if current_page == "Dashboard":
         show_dashboard(get_cached_all_leves, get_cached_filter_options)
     elif current_page == "Saisie des Levés":
         show_saisie_page(
-            add_leve, 
-            get_cached_villages_data, 
+            add_leve,
+            get_cached_villages_data,
             get_index_or_default,
             get_cached_topographes_list,
             can_enter_surveys,
