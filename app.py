@@ -93,7 +93,7 @@ def show_login_page():
                 st.session_state.app_state["show_login"] = False
                 st.session_state.app_state["current_page"] = "Mon Compte"
                 st.success(f"Connexion réussie! Bienvenue {username}!")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Nom d'utilisateur ou mot de passe incorrect.")
     st.markdown("---")
@@ -101,7 +101,7 @@ def show_login_page():
     if st.button("Créer un compte"):
         st.session_state.app_state["show_login"] = False
         st.session_state.app_state["show_registration"] = True
-        st.experimental_rerun()
+        st.rerun()
 
 def show_registration_page():
     st.title("Création de compte")
@@ -127,13 +127,13 @@ def show_registration_page():
                     st.success(message)
                     st.session_state.app_state["show_login"] = True
                     st.session_state.app_state["show_registration"] = False
-                    st.experimental_rerun()
+                    st.rerun()
                 else:
                     st.error(message)
     if st.button("Retour à la connexion"):
         st.session_state.app_state["show_login"] = True
         st.session_state.app_state["show_registration"] = False
-        st.experimental_rerun()
+        st.rerun()
 
 def show_navigation_sidebar():
     st.markdown("""
@@ -170,7 +170,7 @@ def show_navigation_sidebar():
             get_cached_user_leves.clear()
             st.session_state.clear()
             initialize_session_state()
-            st.experimental_rerun()
+            st.rerun()
     else:
         page = st.sidebar.radio("Pages", ["Dashboard"], index=0, key="guest_nav")
         st.sidebar.markdown("---")
@@ -180,16 +180,16 @@ def show_navigation_sidebar():
             if st.button("Se connecter", key="login_btn"):
                 st.session_state.app_state["show_login"] = True
                 st.session_state.app_state["show_registration"] = False
-                st.experimental_rerun()
+                st.rerun()
         with col2:
             if st.button("S'inscrire", key="register_btn"):
                 st.session_state.app_state["show_login"] = False
                 st.session_state.app_state["show_registration"] = True
-                st.experimental_rerun()
+                st.rerun()
     # Changement de page seulement si nécessaire
     if app_state["current_page"] != page:
         app_state["current_page"] = page
-        st.experimental_rerun()
+        st.rerun()
     return page
 
 def main():
