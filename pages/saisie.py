@@ -3,16 +3,10 @@ from datetime import datetime
 
 # ========== OPTIMISATIONS PRINCIPALES ==========
 
-# Remove the problematic cache function - it's already cached in app.py
-# @st.cache_data(ttl=300)  # Cache pendant 5 minutes
-# def get_cached_villages_data(load_villages_data_func):
-#     """Cache les données des villages pour éviter les rechargements"""
-#     return load_villages_data_func()
-
 @st.cache_data(ttl=60)  # Cache pendant 1 minute
-def get_cached_user_leves(get_user_leves_func, username):
+def get_cached_user_leves(_get_user_leves_func, username):
     """Cache les levés de l'utilisateur"""
-    return get_user_leves_func(username)
+    return _get_user_leves_func(username)
 
 @st.cache_data(ttl=300)  # Cache pendant 5 minutes
 def get_cached_topographes_list(_get_topographes_func):
@@ -68,14 +62,28 @@ def initialize_session_state():
 
 def get_filtered_options(villages_data, region, commune):
     """Génère les options filtrées pour les selectbox sans rerun"""
-    region_options = [""] + sorted(list(villages_data.keys()))
+    # Vérification de la validité des données
+    if not villages_data or not isinstance(villages_data, dict):
+        return [""], [""], [""]
+    
+    try:
+        region_options = [""] + sorted(list(villages_data.keys()))
+    except (AttributeError, TypeError):
+        region_options = [""]
     
     commune_options = [""]
-    if region and region in villages_data:
-        commune_options += sorted(list(villages_data[region].keys()))
+    if region and region in villages_data and isinstance(villages_data[region], dict):
+        try:
+            commune_options += sorted(list(villages_data[region].keys()))
+        except (AttributeError, TypeError):
+            pass
     
     village_options = [""]
-    if region and commune and region in villages_data and commune in villages_data[region]:
+    if (region and commune and 
+        region in villages_data and 
+        isinstance(villages_data[region], dict) and
+        commune in villages_data[region] and
+        isinstance(villages_data[region][commune], list)):
         village_options += villages_data[region][commune]
     
     return region_options, commune_options, village_options
@@ -114,19 +122,24 @@ def show_saisie_page(
 
     st.info(f"Connecté en tant que: {current_username} ({user_role})")
 
-    # Chargement optimisé des données - use the already cached function
+    # Chargement optimisé des données avec gestion d'erreur
     try:
-        # Since load_villages_data is already cached in app.py, use it directly
         villages_data = load_villages_data()
-        if not villages_data:
-            st.error("Impossible de charger les données des villages.")
+        if not villages_data or not isinstance(villages_data, dict):
+            st.error("Impossible de charger les données des villages ou données invalides.")
+            st.info("Les données des villages doivent être structurées sous forme de dictionnaire.")
             return
     except Exception as e:
         st.error(f"Erreur lors du chargement des données: {e}")
+        st.info("Vérifiez la connexion à la base de données et la structure des données.")
         return
 
     # Cache des topographes
-    topographes_list = get_cached_topographes_list(get_topographes_list)
+    try:
+        topographes_list = get_cached_topographes_list(get_topographes_list)
+    except Exception as e:
+        st.warning(f"Erreur lors du chargement des topographes: {e}")
+        topographes_list = get_cached_topographes_list(None)  # Utilise la liste par défaut
 
     # Messages de succès (éviter les reruns inutiles)
     if st.session_state.get("form_submitted", False):
@@ -183,17 +196,26 @@ def render_edit_selection(get_user_leves, current_username, user_role,
     st.subheader("Sélectionner un levé à modifier")
     
     try:
-        # Utilisation du cache pour les levés utilisateur
-        user_leves = get_cached_user_leves(get_user_leves, current_username)
+        # Utilisation du cache pour les levés utilisateur avec gestion d'erreur
+        try:
+            user_leves = get_cached_user_leves(get_user_leves, current_username)
+        except Exception as e:
+            st.error(f"Erreur lors du chargement des levés utilisateur: {e}")
+            return
+        
+        # Vérification de la validité des données
+        if not user_leves or not isinstance(user_leves, list):
+            st.info("Aucun levé trouvé pour cet utilisateur.")
+            return
         
         # Filtrage robuste et optimisé
-        user_leves_valides = [
-            leve for leve in user_leves 
-            if isinstance(leve, dict) and 
-               'id' in leve and 
-               leve['id'] is not None and 
-               str(leve['id']).strip()
-        ]
+        user_leves_valides = []
+        for leve in user_leves:
+            if (isinstance(leve, dict) and 
+                'id' in leve and 
+                leve['id'] is not None and 
+                str(leve['id']).strip()):
+                user_leves_valides.append(leve)
         
         if not user_leves_valides:
             st.info("Aucun levé valide à modifier.")
@@ -212,7 +234,7 @@ def render_edit_selection(get_user_leves, current_username, user_role,
                 options.append(option)
                 id_map[option] = leve['id']
             except Exception as e:
-                st.warning(f"Erreur lors de la création de l'option: {e}")
+                st.warning(f"Erreur lors de la création de l'option pour le levé {leve.get('id', 'inconnu')}: {e}")
                 continue
         
         if not options:
@@ -221,12 +243,12 @@ def render_edit_selection(get_user_leves, current_username, user_role,
         
         selected = st.selectbox("Choisissez un levé", options, key="edit_leve_selectbox")
         
-        if selected in id_map:
+        if selected and selected in id_map:
             render_edit_actions(selected, id_map, get_leve_by_id, 
                               can_edit_leve, current_username, user_role)
                     
     except Exception as e:
-        st.error(f"Erreur lors du chargement des levés: {e}")
+        st.error(f"Erreur générale lors du chargement des levés: {e}")
 
 def render_edit_actions(selected, id_map, get_leve_by_id, can_edit_leve, 
                        current_username, user_role):
@@ -236,14 +258,17 @@ def render_edit_actions(selected, id_map, get_leve_by_id, can_edit_leve,
     col_edit1, col_edit2 = st.columns(2)
     with col_edit1:
         if st.button("Charger pour modification", key="load_edit_btn"):
-            leve_data = get_leve_by_id(leve_id)
-            if leve_data:
-                if can_edit_leve(current_username, user_role, leve_data.get("superviseur", "")):
-                    load_edit_data(leve_id, leve_data)
+            try:
+                leve_data = get_leve_by_id(leve_id)
+                if leve_data:
+                    if can_edit_leve(current_username, user_role, leve_data.get("superviseur", "")):
+                        load_edit_data(leve_id, leve_data)
+                    else:
+                        st.error("Vous ne pouvez modifier que vos propres levés.")
                 else:
-                    st.error("Vous ne pouvez modifier que vos propres levés.")
-            else:
-                st.error("Levé non trouvé.")
+                    st.error("Levé non trouvé.")
+            except Exception as e:
+                st.error(f"Erreur lors du chargement du levé: {e}")
     
     with col_edit2:
         if st.button("Annuler", key="cancel_edit_selection_btn"):
@@ -272,30 +297,43 @@ def render_main_form(villages_data, topographes_list, current_username,
                     get_index_or_default, add_leve, update_leve, clear_leves_cache=None):
     """Formulaire principal optimisé"""
     
+    # Vérification de la validité des données
+    if not villages_data or not isinstance(villages_data, dict):
+        st.error("Données des villages non disponibles ou invalides.")
+        return
+    
     # Données en cache pour éviter les recalculs
     cached_data = st.session_state.cached_form_data
     current_region = cached_data.get("region", "")
     current_commune = cached_data.get("commune", "")
     
-    # Génération optimisée des options
-    region_options, commune_options, village_options = get_filtered_options(
-        villages_data, current_region, current_commune
-    )
+    # Génération optimisée des options avec gestion d'erreur
+    try:
+        region_options, commune_options, village_options = get_filtered_options(
+            villages_data, current_region, current_commune
+        )
+    except Exception as e:
+        st.error(f"Erreur lors de la génération des options: {e}")
+        region_options, commune_options, village_options = [""], [""], [""]
 
     # Sélecteurs avec callbacks optimisés
-    region = st.selectbox(
-        "Région",
-        options=region_options,
-        index=get_index_or_default(region_options, current_region),
-        key="region_select"
-    )
+    try:
+        region = st.selectbox(
+            "Région",
+            options=region_options,
+            index=get_index_or_default(region_options, current_region),
+            key="region_select"
+        )
 
-    commune = st.selectbox(
-        "Commune",
-        options=commune_options,
-        index=get_index_or_default(commune_options, current_commune),
-        key="commune_select"
-    )
+        commune = st.selectbox(
+            "Commune",
+            options=commune_options,
+            index=get_index_or_default(commune_options, current_commune),
+            key="commune_select"
+        )
+    except Exception as e:
+        st.error(f"Erreur lors de l'affichage des sélecteurs: {e}")
+        return
 
     # Mise à jour optimisée du cache
     if region != current_region:
@@ -327,16 +365,21 @@ def render_form_fields(village_options, topographes_list, current_username,
     if st.session_state.get("edit_mode", False) and cached_data.get("date"):
         try:
             default_date = datetime.strptime(cached_data["date"], "%Y-%m-%d")
-        except:
+        except Exception as e:
+            st.warning(f"Format de date invalide: {e}")
             default_date = datetime.now()
     
     date = st.date_input("Date du levé", default_date)
     
-    # Topographe
+    # Topographe avec gestion d'erreur
     cached_topographe = cached_data.get("topographe", "")
     topographe_index = 0
-    if cached_topographe in topographes_list:
-        topographe_index = topographes_list.index(cached_topographe)
+    
+    try:
+        if cached_topographe and cached_topographe in topographes_list:
+            topographe_index = topographes_list.index(cached_topographe)
+    except (ValueError, TypeError):
+        topographe_index = 0
     
     topographe = st.selectbox(
         "Topographe",
@@ -351,12 +394,16 @@ def render_form_fields(village_options, topographes_list, current_username,
     st.write(f"Superviseur: **{superviseur}**")
 
     # Village
-    village = st.selectbox(
-        "Village",
-        options=village_options,
-        index=get_index_or_default(village_options, cached_data.get("village", "")),
-        key="village_select"
-    )
+    try:
+        village = st.selectbox(
+            "Village",
+            options=village_options,
+            index=get_index_or_default(village_options, cached_data.get("village", "")),
+            key="village_select"
+        )
+    except Exception as e:
+        st.error(f"Erreur lors de l'affichage des villages: {e}")
+        village = ""
 
     # Appareil et type
     col1, col2 = st.columns(2)
@@ -384,11 +431,14 @@ def render_form_fields(village_options, topographes_list, current_username,
     with col2:
         type_options = ["Batîments", "Champs", "Edifice publique", "Autre"]
         type_index = cached_data.get("type_leve", 0)
+        # Validation de l'index
+        if type_index >= len(type_options):
+            type_index = 0
         type_leve = st.selectbox("Type de levé", options=type_options, index=type_index)
 
     # Quantité
     quantite = st.number_input("Quantité", min_value=1, 
-                              value=cached_data.get("quantite", 1), step=1)
+                              value=max(1, cached_data.get("quantite", 1)), step=1)
     
     # Soumission du formulaire
     submit_text = "Modifier le levé" if st.session_state.get("edit_mode", False) else "Enregistrer le levé"
@@ -416,38 +466,49 @@ def handle_form_submission(date, village, region, commune, type_leve, quantite,
         return
 
     # Mise à jour du cache
+    try:
+        type_index = type_options.index(type_leve) if type_leve in type_options else 0
+    except (ValueError, AttributeError):
+        type_index = 0
+        
     st.session_state.cached_form_data.update({
         "region": region, "commune": commune, "village": village,
-        "appareil": appareil, "type_leve": type_options.index(type_leve),
+        "appareil": appareil, "type_leve": type_index,
         "quantite": quantite, "topographe": topographe
     })
 
     date_str = date.strftime("%Y-%m-%d")
     
-    # Soumission
-    if st.session_state.get("edit_mode", False):
-        success = update_leve(
-            st.session_state.edit_leve_id,
-            date_str, village, region, commune, 
-            type_leve, quantite, appareil, topographe, superviseur
-        )
-        if success:
-            handle_successful_submission(True, clear_leves_cache)
+    # Soumission avec gestion d'erreur
+    try:
+        if st.session_state.get("edit_mode", False):
+            success = update_leve(
+                st.session_state.edit_leve_id,
+                date_str, village, region, commune, 
+                type_leve, quantite, appareil, topographe, superviseur
+            )
+            if success:
+                handle_successful_submission(True, clear_leves_cache)
+            else:
+                st.error("Erreur lors de la modification du levé.")
         else:
-            st.error("Erreur lors de la modification du levé.")
-    else:
-        success = add_leve(date_str, village, region, commune, type_leve, 
-                          quantite, appareil, topographe, superviseur)
-        if success:
-            handle_successful_submission(False, clear_leves_cache)
-        else:
-            st.error("Erreur lors de l'enregistrement du levé.")
+            success = add_leve(date_str, village, region, commune, type_leve, 
+                              quantite, appareil, topographe, superviseur)
+            if success:
+                handle_successful_submission(False, clear_leves_cache)
+            else:
+                st.error("Erreur lors de l'enregistrement du levé.")
+    except Exception as e:
+        st.error(f"Erreur lors de la soumission: {e}")
 
 def handle_successful_submission(is_edit=False, clear_leves_cache=None):
     """Gestion après soumission réussie"""
     # Invalider les caches pertinents
-    get_cached_user_leves.clear()
-    st.cache_data.clear()
+    try:
+        get_cached_user_leves.clear()
+        st.cache_data.clear()
+    except Exception as e:
+        st.warning(f"Erreur lors du nettoyage du cache: {e}")
     
     # Si une fonction externe de nettoyage de cache est fournie
     if clear_leves_cache and callable(clear_leves_cache):
