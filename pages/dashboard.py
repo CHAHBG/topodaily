@@ -76,7 +76,7 @@ def show_dashboard(get_all_leves, get_filter_options):
         col1, col2, col3 = st.columns(3)
         quantite = leves_filtered['quantite'] if 'quantite' in leves_filtered.columns else pd.Series([0]*len(leves_filtered))
         with col1:
-            st.metric("Nombre Total de Levés", len(leves_filtered))
+            st.metric("Nombre d'enregistrements", len(leves_filtered))
         with col2:
             st.metric("Quantité Totale", f"{quantite.sum():,.0f}")
         with col3:
