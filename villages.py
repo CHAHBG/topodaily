@@ -31,7 +31,7 @@ def load_villages_data_cached():
         df.columns = [col.lower().strip() for col in df.columns]
         
         # Afficher les colonnes disponibles pour le debug
-        st.info(f"Colonnes disponibles dans le fichier: {list(df.columns)}")
+      
         
         # Vérifier les colonnes requises
         required_columns = ['village', 'commune', 'region']
